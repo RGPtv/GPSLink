@@ -354,19 +354,24 @@
                     <TextView
                         android:text="SIGNAL"
                         android:textSize="9sp"
-                        android:textColor="#4B5563"
+                        android:textColor="#3B82F6"
                         android:letterSpacing="0.1"
-                        android:layout_marginBottom="6dp"
+                        android:layout_marginBottom="8dp"
                         android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+
+                    <com.ubloxbridge.SignalBarsView
+                        android:id="@+id/signalBarsView"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"/>
 
                     <TextView
                         android:id="@+id/tvSignal"
-                        android:text="―"
-                        android:textSize="11sp"
+                        android:text=""
+                        android:textSize="9sp"
                         android:fontFamily="monospace"
-                        android:textColor="#22D3EE"
-                        android:lineSpacingMultiplier="1.7"
+                        android:textColor="#374151"
+                        android:layout_marginTop="6dp"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"/>
                 </LinearLayout>
