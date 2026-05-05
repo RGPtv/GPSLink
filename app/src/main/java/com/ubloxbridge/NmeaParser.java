@@ -181,6 +181,8 @@ public class NmeaParser {
 
     private static String getConstellation(String talker) {
         if (talker == null) return "Unknown";
+        // Check GN (multi-constellation) BEFORE GP to avoid substring false-matches
+        if (talker.contains("GN")) return "GNSS";
         if (talker.contains("GP")) return "GPS";
         if (talker.contains("GL")) return "GLONASS";
         if (talker.contains("GA")) return "Galileo";
