@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Full dark theme: no ActionBar, no white title bar -->
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#080C1A</item>
+        <item name="android:statusBarColor">#080C1A</item>
+        <item name="android:navigationBarColor">#080C1A</item>
+        <item name="colorPrimary">#0F1629</item>
+        <item name="colorPrimaryDark">#080C1A</item>
+        <item name="colorAccent">#2563EB</item>
+    </style>
+</resources>
