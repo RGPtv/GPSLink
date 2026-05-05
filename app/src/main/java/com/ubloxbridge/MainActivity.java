@@ -15,6 +15,12 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
 public class MainActivity extends AppCompatActivity {
 
     // ── Hz button colour tokens ───────────────────────────────────────────────
@@ -40,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
 
     private android.view.View statusDot;
     private CompassView compassView;
+    private SignalBarsView signalBarsView;
 
     private Button btnStart, btnStop, btn1Hz, btn5Hz;
 
@@ -60,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
                 String satsView  = intent.getStringExtra("satsInView");
                 String satsUsed  = intent.getStringExtra("satsUsed");
                 String heading   = intent.getStringExtra("heading");
+                String constJson = intent.getStringExtra("constellationJson");
                 long   bytes     = intent.getLongExtra("bytes", -1);
                 int    sents     = intent.getIntExtra("sents", -1);
                 long   fixTime   = intent.getLongExtra("fixtime", 0);
@@ -72,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
                 if (satsView != null) tvSatsInView.setText(satsView);
                 if (satsUsed != null) tvSatsUsed.setText(satsUsed);
                 if (heading!= null) updateHeading(heading);
+                if (constJson != null && !constJson.isEmpty()) updateSignalBars(constJson);
                 if (bytes  >= 0 && sents >= 0)
                     tvSerialStats.setText(sents + " sentences · " + fmtBytes(bytes));
                 if (fixTime > 0)
@@ -109,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
         tvFixType     = findViewById(R.id.tvFixType);
         statusDot     = findViewById(R.id.statusDot);
         compassView   = findViewById(R.id.compassView);
+        signalBarsView = findViewById(R.id.signalBarsView);
 
         btnStart = findViewById(R.id.btnStart);
         btnStop  = findViewById(R.id.btnStop);
@@ -308,6 +318,29 @@ public class MainActivity extends AppCompatActivity {
         return dirs[(int) Math.round(heading / 22.5) % 16];
     }
 
+    /**
+     * Parse constellation JSON and update SignalBarsView.
+     * JSON format: [{"label":"GPS","avgSnr":38,"count":6}, ...]
+     */
+    private void updateSignalBars(String json) {
+        if (signalBarsView == null || json == null || json.isEmpty()) return;
+        try {
+            JSONArray arr = new JSONArray(json);
+            List<SignalBarsView.ConstellationSignal> signals = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject obj = arr.getJSONObject(i);
+                signals.add(new SignalBarsView.ConstellationSignal(
+                    obj.getString("label"),
+                    obj.getInt("avgSnr"),
+                    obj.getInt("count")
+                ));
+            }
+            signalBarsView.setSignals(signals);
+        } catch (Exception e) {
+            // silently ignore malformed JSON
+        }
+    }
+
     // ── Hz UI ─────────────────────────────────────────────────────────────────
 
     private void setHz(int hz) {
@@ -342,6 +375,7 @@ public class MainActivity extends AppCompatActivity {
             updatePosition(UsbSerialService.lastPos);
             updateMovement(UsbSerialService.lastMovement);
             updateHeading(UsbSerialService.lastHeading);
+            updateSignalBars(UsbSerialService.lastConstellationJson);
             tvSerial    .setText(UsbSerialService.lastSerialLog);
             tvSatsInView.setText(UsbSerialService.lastSatsInView);
             tvSatsUsed  .setText(UsbSerialService.lastSatsUsed);
@@ -373,6 +407,7 @@ public class MainActivity extends AppCompatActivity {
         tvSerialStats.setText("");
         tvLastFix    .setText("");
         compassView  .setHeading(0f);
+        if (signalBarsView != null) signalBarsView.setSignals(null);
     }
 
     private void clearServiceState() {

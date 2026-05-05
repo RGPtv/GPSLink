@@ -72,6 +72,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     public static volatile String  lastSatsInView  = "\u2014";
     public static volatile String  lastSatsUsed    = "\u2014";
     public static volatile String  lastHeading    = "0°";
+    public static volatile String  lastConstellationJson = "";
     public static volatile long    totalBytes    = 0;
     public static volatile int     totalSents    = 0;
     public static volatile long    lastFixTime   = 0;
@@ -437,19 +438,49 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 .putExtra("sents", totalSents)
                 .putExtra("satsInView", lastSatsInView)
                 .putExtra("satsUsed", lastSatsUsed)
-                .putExtra("satellites", lastSatellites));
+                .putExtra("satellites", lastSatellites)
+                .putExtra("constellationJson", lastConstellationJson));
     }
 
     private void updateSatelliteSummary() {
         int seen = seenSats.size();
         int tracked = 0;
         Map<String, Integer> byConstellation = new LinkedHashMap<>();
+        // per-constellation: sum of SNR and count of sats with signal
+        Map<String, int[]> snrByConstellation = new LinkedHashMap<>(); // label → [snrSum, satCount]
         for (NmeaParser.SatInfo s : seenSats.values()) {
             if (s.snr > 0) tracked++;
             String key = constellationAbbr(s.constellation);
             byConstellation.put(key, byConstellation.getOrDefault(key, 0) + 1);
+            if (s.snr > 0) {
+                int[] acc = snrByConstellation.get(key);
+                if (acc == null) { acc = new int[]{0, 0}; snrByConstellation.put(key, acc); }
+                acc[0] += s.snr;
+                acc[1]++;
+            } else {
+                // ensure entry exists even if no snr sats yet
+                if (!snrByConstellation.containsKey(key)) snrByConstellation.put(key, new int[]{0, 0});
+            }
         }
-    
+
+        // Build JSON for SignalBarsView: [{"label":"GPS","avgSnr":38,"count":6}, ...]
+        StringBuilder json = new StringBuilder("[");
+        boolean firstEntry = true;
+        for (Map.Entry<String, Integer> e : byConstellation.entrySet()) {
+            String label = e.getKey();
+            int totalSats = e.getValue();
+            int[] snrAcc = snrByConstellation.get(label);
+            int avgSnr = (snrAcc != null && snrAcc[1] > 0) ? (snrAcc[0] / snrAcc[1]) : 0;
+            if (!firstEntry) json.append(",");
+            json.append("{\"label\":\"").append(label)
+                .append("\",\"avgSnr\":").append(avgSnr)
+                .append(",\"count\":").append(totalSats)
+                .append("}");
+            firstEntry = false;
+        }
+        json.append("]");
+        lastConstellationJson = json.toString();
+
         int displayUsed = hasGGASatCount ? satsTrackedCount : 0;
     
         // ← FIX: in-view should never be less than in-use
@@ -534,7 +565,8 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 .putExtra("satellites", lastSatellites).putExtra("bytes", totalBytes)
                 .putExtra("sents", totalSents).putExtra("fixtime", lastFixTime)
                 .putExtra("satsInView", lastSatsInView).putExtra("satsUsed", lastSatsUsed)
-                .putExtra("heading", String.format("%.1f°", bearing)));
+                .putExtra("heading", String.format("%.1f°", bearing))
+                .putExtra("constellationJson", lastConstellationJson));
     }
 
     private static String fixLabel(int q) {
