@@ -447,10 +447,14 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             String key = constellationAbbr(s.constellation);
             byConstellation.put(key, byConstellation.getOrDefault(key, 0) + 1);
         }
-        // Use tracked from GSV SNR data; fall back to GGA count if GSV hasn't arrived yet
-        int displayTracked = (seen > 0) ? tracked : satsTrackedCount;
+    
+        // "In view"  = total satellites seen in GSV messages
+        // "In use"   = satellites used in fix, as reported by GGA field 7
+        //              Fall back to SNR-tracked count only if GGA hasn't arrived yet.
+        int displayUsed = (satsTrackedCount > 0) ? satsTrackedCount : tracked;  // ← KEY FIX
+    
         StringBuilder sb = new StringBuilder();
-        sb.append(seen).append(" seen · ").append(displayTracked).append(" tracked");
+        sb.append(seen).append(" seen · ").append(displayUsed).append(" in use");
         if (!byConstellation.isEmpty()) {
             sb.append("  ");
             boolean first = true;
@@ -462,7 +466,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
         lastSatellites = sb.toString();
         lastSatsInView = String.valueOf(seen);
-        lastSatsUsed   = String.valueOf(displayTracked);
+        lastSatsUsed   = String.valueOf(displayUsed);  // ← was displayTracked (SNR-based)
     }
 
     private static String constellationAbbr(String name) {
