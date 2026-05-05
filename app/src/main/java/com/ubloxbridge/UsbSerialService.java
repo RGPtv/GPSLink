@@ -134,6 +134,38 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         });
     }
 
+        /**
+     * UBX-CFG-GNSS — enables GPS, GLONASS, Galileo, and BeiDou simultaneously.
+     * Each block: gnssId, resTrkCh, maxTrkCh, reserved1, flags (4 bytes).
+     * flags bit 0 = enable, bits 16-18 = sigCfgMask (1 = default signal).
+     */
+    private static byte[] ubxCfgGnss() {
+        return ubx(0x06, 0x3E, new byte[]{
+            0x00,              // msgVer
+            0x00,              // numTrkChHw (0 = read from module)
+            (byte) 0xFF,       // numTrkChUse (0xFF = use all available)
+            0x04,              // numConfigBlocks = 4
+    
+            // GPS (gnssId=0): channels 8–16, enable, L1C/A
+            0x00, 0x08, 0x10, 0x00,  (byte)0x01,0x00,0x01,0x01,
+            // GLONASS (gnssId=6): channels 4–8, enable, L1OF
+            0x06, 0x04, 0x08, 0x00,  (byte)0x01,0x00,0x01,0x01,
+            // Galileo (gnssId=2): channels 4–8, enable, E1OS
+            0x02, 0x04, 0x08, 0x00,  (byte)0x01,0x00,0x01,0x01,
+            // BeiDou (gnssId=3): channels 2–4, enable, B1I
+            0x03, 0x02, 0x04, 0x00,  (byte)0x01,0x00,0x01,0x01,
+        });
+    }
+
+    private static byte[] ubxCfgCfg() {
+        // Save all config sections to battery-backed RAM + flash
+        return ubx(0x06, 0x09, new byte[]{
+            0x00, 0x00, 0x00, 0x00,  // clearMask  (clear nothing)
+            (byte)0xFF,(byte)0xFF, 0x00, 0x00,  // saveMask (save all)
+            0x00, 0x00, 0x00, 0x00   // loadMask  (load nothing)
+        });
+    }
+    
     private static byte[] ubxCfgMsg(int msgCls, int msgId, int rate) {
         return ubx(0x06, 0x01, new byte[]{
             (byte) msgCls, (byte) msgId,
@@ -340,6 +372,11 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     private void configureUblox() {
         try { Thread.sleep(600); } catch (InterruptedException ignored) {}
         sendUbx(ubxCfgRate(currentHz));
+    
+        // ── Enable all constellations ──────────────────────────────
+        sendUbx(ubxCfgGnss());
+        try { Thread.sleep(300); } catch (InterruptedException ignored) {} // module needs time to reconfigure
+    
         sendUbx(ubxCfgMsg(0xF0, 0x41, 0)); // disable GPTXT
         sendUbx(ubxCfgMsg(0xF0, 0x02, 0)); // disable GSA
         sendUbx(ubxCfgMsg(0xF0, 0x01, 0)); // disable GLL
@@ -347,7 +384,9 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         sendUbx(ubxCfgMsg(0xF0, 0x00, 1)); // GGA on
         sendUbx(ubxCfgMsg(0xF0, 0x04, 1)); // RMC on
         sendUbx(ubxCfgMsg(0xF0, 0x03, 1)); // GSV on
-        Log.d(TAG, "UBX configured at " + currentHz + " Hz");
+    
+        sendUbx(ubxCfgCfg()); // save to flash
+        Log.d(TAG, "UBX configured at " + currentHz + " Hz with multi-constellation");
     }
 
     private void applyHzConfig() {
