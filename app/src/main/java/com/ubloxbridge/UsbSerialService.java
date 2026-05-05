@@ -97,6 +97,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
 
     private final Map<String, NmeaParser.SatInfo> seenSats = new LinkedHashMap<>();
     private int satsTrackedCount = 0; // FIX #8: Renamed for accuracy
+    private boolean hasGGASatCount = true;
 
     private static byte[] ubx(int cls, int id, byte[] payload) {
         byte[] msg = new byte[6 + payload.length + 2];
@@ -180,7 +181,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 totalBytes  = 0; totalSents  = 0; lastFixTime = 0; retryCount  = 0;
             }
             synchronized (nmeaLock) {
-                serialLines.clear(); seenSats.clear(); satsTrackedCount = 0;
+                serialLines.clear(); seenSats.clear(); satsTrackedCount = 0; hasGGASatCount = false;
                 lastSatellites = "\u2014";
                 lastSatsInView = "\u2014";
                 lastSatsUsed   = "\u2014";
@@ -409,6 +410,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             hdop = d.hdop; satellites = d.satellites;
             fixQuality = d.fixQuality;
             satsTrackedCount = d.satellites; // FIX #8
+            hasGGASatCount = true;
             hasGGA = true;
         } else if ("RMC".equals(d.type)) {
             speed = d.speed; bearing = d.bearing;
@@ -451,7 +453,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         // "In view"  = total satellites seen in GSV messages
         // "In use"   = satellites used in fix, as reported by GGA field 7
         //              Fall back to SNR-tracked count only if GGA hasn't arrived yet.
-        int displayUsed = (satsTrackedCount > 0) ? satsTrackedCount : tracked;  // ← KEY FIX
+        int displayUsed = hasGGASatCount ? satsTrackedCount : 0;  // ← KEY FIX
     
         StringBuilder sb = new StringBuilder();
         sb.append(seen).append(" seen · ").append(displayUsed).append(" in use");
@@ -466,7 +468,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
         lastSatellites = sb.toString();
         lastSatsInView = String.valueOf(seen);
-        lastSatsUsed   = String.valueOf(displayUsed);  // ← was displayTracked (SNR-based)
+        lastSatsUsed   = lastSatsUsed = hasGGASatCount ? String.valueOf(displayUsed) : "—";  // ← was displayTracked (SNR-based)
     }
 
     private static String constellationAbbr(String name) {
