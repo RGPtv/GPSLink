@@ -74,7 +74,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     public static volatile String  lastSatsUsed         = "\u2014";
     public static volatile String  lastHeading          = "0°";
     public static volatile String  lastConstellationJson = "";
-    public static final java.util.concurrent.atomic.AtomicLong totalBytes = new java.util.concurrent.atomic.AtomicLong(0);
+    public static volatile long    totalBytes           = 0;
     public static volatile int     totalSents           = 0;
     public static volatile long    lastFixTime          = 0;
 
@@ -248,7 +248,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         isRunning = true;
         if (intent != null) {
             synchronized (STATE_LOCK) {
-                totalBytes.set(0);
+                totalBytes  = 0;
                 totalSents  = 0;
                 lastFixTime = 0;
                 retryCount  = 0;
@@ -409,12 +409,11 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     }
 
     private void applyHzConfig() {
-        UsbSerialPort port = serialPort;
+        UsbSerialPort port = serialPort; // local snapshot prevents disconnect race
         if (port == null) return;
         sendUbx(ubxCfgRate(currentHz));
-        sendUbx(ubxCfgCfg());   // ← persist to flash
         broadcastConn("Connected · " + connectedDevName + " · " + BAUD_RATE + " baud · " + currentHz + " Hz");
-        Log.d(TAG, "Hz updated to " + currentHz + " and saved to flash");
+        Log.d(TAG, "Hz updated to " + currentHz);
     }
 
     private void sendUbx(byte[] msg) {
@@ -475,7 +474,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
      */
     @Override
     public void onNewData(byte[] data) {
-        totalBytes.addAndGet(data.length);
+        totalBytes += data.length; // volatile write — single writer thread
 
         synchronized (nmeaLock) {
             nmeaBuffer.append(new String(data, StandardCharsets.ISO_8859_1));
@@ -525,16 +524,11 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 // would cause the reset key to be "SBAS" instead of "GPS", leaving stale
                 // GPS entries permanently in seenSats).
                 boolean isFirstMsg = parts.length > 2 && "1".equals(parts[2].trim());
-                // Replace the isFirstMsg block:
                 if (isFirstMsg) {
+                    // Derive the reset prefix from the raw talker header, not the parsed sat
                     String talkerConstellation = NmeaParser.constellationFromTalker(parts[0]);
-                    if ("GNSS".equals(talkerConstellation)) {
-                        // $GN talker aggregates all constellations — clear everything
-                        seenSats.clear();
-                    } else {
-                        final String resetPrefix = talkerConstellation + ":";
-                        seenSats.entrySet().removeIf(e -> e.getKey().startsWith(resetPrefix));
-                    }
+                    final String resetPrefix = talkerConstellation + ":";
+                    seenSats.entrySet().removeIf(e -> e.getKey().startsWith(resetPrefix));
                 }
                 for (NmeaParser.SatInfo s : sats) {
                     seenSats.put(s.constellation + ":" + s.prn, s);
@@ -726,7 +720,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 .putExtra("movement",         lastMovement)
                 .putExtra("serial",           lastSerialLog)
                 .putExtra("satellites",       lastSatellites)
-                .putExtra("bytes",            totalBytes.get())
+                .putExtra("bytes",            totalBytes)
                 .putExtra("sents",            totalSents)
                 .putExtra("fixtime",          lastFixTime)
                 .putExtra("satsInView",       lastSatsInView)
@@ -738,7 +732,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     private void broadcastSerial() {
         sendBroadcast(new Intent(ACTION_STATUS)
                 .putExtra("serial",           lastSerialLog)
-                .putExtra("bytes",            totalBytes.get())
+                .putExtra("bytes",            totalBytes)
                 .putExtra("sents",            totalSents)
                 .putExtra("satsInView",       lastSatsInView)
                 .putExtra("satsUsed",         lastSatsUsed)
