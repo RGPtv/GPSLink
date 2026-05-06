@@ -183,6 +183,16 @@ public class NmeaParser {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /**
+     * Public entry point for UsbSerialService to derive a constellation name
+     * from a raw NMEA talker header string (e.g. "$GLGSV" → "GLONASS").
+     * This is used for stale-entry reset keying — it intentionally does NOT
+     * apply the SBAS PRN override (that only applies per-satellite in parseGSV).
+     */
+    public static String constellationFromTalker(String talker) {
+        return getConstellation(talker);
+    }
+
     private static String getConstellation(String talker) {
         if (talker == null) return "Unknown";
         // GN must be checked before GP — "$GN..." contains "GP" as a substring

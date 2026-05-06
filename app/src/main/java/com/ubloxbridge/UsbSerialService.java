@@ -517,11 +517,18 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             List<NmeaParser.SatInfo> sats = NmeaParser.parseGSV(sentence);
             if (!sats.isEmpty()) {
                 String[] parts = sentence.split(",", -1);
-                // First message in a GSV sequence resets stale entries for that constellation
+                // First message in a GSV sequence resets stale entries for that talker.
+                // BUG FIX: use the talker-derived constellation from the raw sentence
+                // header (parts[0] e.g. "$GLGSV") instead of sats.get(0).constellation,
+                // which may have been relabeled (e.g. SBAS PRNs inside a $GPGSV sentence
+                // would cause the reset key to be "SBAS" instead of "GPS", leaving stale
+                // GPS entries permanently in seenSats).
                 boolean isFirstMsg = parts.length > 2 && "1".equals(parts[2].trim());
                 if (isFirstMsg) {
-                    String constellation = sats.get(0).constellation;
-                    seenSats.entrySet().removeIf(e -> e.getKey().startsWith(constellation + ":"));
+                    // Derive the reset prefix from the raw talker header, not the parsed sat
+                    String talkerConstellation = NmeaParser.constellationFromTalker(parts[0]);
+                    final String resetPrefix = talkerConstellation + ":";
+                    seenSats.entrySet().removeIf(e -> e.getKey().startsWith(resetPrefix));
                 }
                 for (NmeaParser.SatInfo s : sats) {
                     seenSats.put(s.constellation + ":" + s.prn, s);
@@ -751,7 +758,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     private static String fixLabel(int q) {
         switch (q) {
             case 1:  return "GPS";
-            case 2:  return "DGPS/SBAS";   // ← update this line only
+            case 2:  return "DGPS";
             case 3:  return "PPS";
             case 4:  return "RTK Fixed";
             case 5:  return "RTK Float";
