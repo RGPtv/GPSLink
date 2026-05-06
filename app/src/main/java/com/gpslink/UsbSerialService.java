@@ -233,7 +233,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         // BUG FIX: pm could theoretically be null; guard it
         if (pm != null) {
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UbloxBridge:serial");
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GPSLink:serial");
         }
         createNotificationChannel();
 
