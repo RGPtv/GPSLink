@@ -161,6 +161,10 @@ public class NmeaParser {
                 SatInfo s    = new SatInfo();
                 s.constellation = constellation;
                 s.prn       = Integer.parseInt(prnStr);
+                // SBAS satellites broadcast on PRNs 120–158. Some receivers
+                // report them under the $GP talker instead of $GS, so we
+                // override the constellation label by PRN range.
+                if (isSbasPrn(s.prn)) s.constellation = "SBAS";
                 s.elevation = clamp(parseIntSafe(p[idx + 1]),  0,  90);
                 s.azimuth   = clamp(parseIntSafe(p[idx + 2]),  0, 360);
                 // SNR: last field of a group may be followed by '*' in some
@@ -181,14 +185,25 @@ public class NmeaParser {
 
     private static String getConstellation(String talker) {
         if (talker == null) return "Unknown";
-        // Check GN (multi-constellation) BEFORE GP to avoid substring false-matches
+        // GN must be checked before GP — "$GN..." contains "GP" as a substring
+        // on some receivers if not checked first (false positive).
         if (talker.contains("GN")) return "GNSS";
         if (talker.contains("GP")) return "GPS";
         if (talker.contains("GL")) return "GLONASS";
         if (talker.contains("GA")) return "Galileo";
         if (talker.contains("BD") || talker.contains("GB")) return "BeiDou";
         if (talker.contains("QZ")) return "QZSS";
+        // SBAS uses talker "GS" on some receivers, or is identified by PRN range
+        if (talker.contains("GS")) return "SBAS";
         return "Unknown";
+    }
+
+    /**
+     * Returns true if the given PRN falls in the SBAS satellite range.
+     * SBAS geostationary satellites use PRNs 120–158 in NMEA sentences.
+     */
+    public static boolean isSbasPrn(int prn) {
+        return prn >= 120 && prn <= 158;
     }
 
     /**

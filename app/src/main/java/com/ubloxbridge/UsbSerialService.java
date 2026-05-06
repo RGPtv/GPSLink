@@ -134,10 +134,16 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         });
     }
 
-        /**
-     * UBX-CFG-GNSS — enables GPS, GLONASS, Galileo, and BeiDou simultaneously.
-     * Each block: gnssId, resTrkCh, maxTrkCh, reserved1, flags (4 bytes).
-     * flags bit 0 = enable, bits 16-18 = sigCfgMask (1 = default signal).
+    private static byte[] ubxCfgMsg(int msgCls, int msgId, int rate) {
+        return ubx(0x06, 0x01, new byte[]{
+            (byte) msgCls, (byte) msgId,
+            0, (byte) rate, 0, (byte) rate, 0, 0
+        });
+    }
+
+    /**
+     * UBX-CFG-GNSS — enables GPS, GLONASS, Galileo, BeiDou.
+     * M7 silently ignores Galileo/BeiDou blocks and applies GPS+GLONASS only.
      */
     private static byte[] ubxCfgGnss() {
         return ubx(0x06, 0x3E, new byte[]{
@@ -145,7 +151,6 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             0x00,              // numTrkChHw (0 = read from module)
             (byte) 0xFF,       // numTrkChUse (0xFF = use all available)
             0x04,              // numConfigBlocks = 4
-    
             // GPS (gnssId=0): channels 8–16, enable, L1C/A
             0x00, 0x08, 0x10, 0x00,  (byte)0x01,0x00,0x01,0x01,
             // GLONASS (gnssId=6): channels 4–8, enable, L1OF
@@ -157,19 +162,28 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         });
     }
 
-    private static byte[] ubxCfgCfg() {
-        // Save all config sections to battery-backed RAM + flash
-        return ubx(0x06, 0x09, new byte[]{
-            0x00, 0x00, 0x00, 0x00,  // clearMask  (clear nothing)
-            (byte)0xFF,(byte)0xFF, 0x00, 0x00,  // saveMask (save all)
-            0x00, 0x00, 0x00, 0x00   // loadMask  (load nothing)
+    /**
+     * UBX-CFG-SBAS — enables SBAS ranging and correction.
+     * scanmode=0 means auto-scan all PRNs (WAAS, EGNOS, MSAS, GAGAN).
+     */
+    private static byte[] ubxCfgSbas() {
+        return ubx(0x06, 0x16, new byte[]{
+            0x01,                                           // mode: enable
+            0x03,                                           // usage: ranging + correction
+            0x03,                                           // maxSBAS channels
+            0x00,                                           // scanmode2
+            (byte)0x00,(byte)0x00,(byte)0x00,(byte)0x00    // scanmode1: auto
         });
     }
-    
-    private static byte[] ubxCfgMsg(int msgCls, int msgId, int rate) {
-        return ubx(0x06, 0x01, new byte[]{
-            (byte) msgCls, (byte) msgId,
-            0, (byte) rate, 0, (byte) rate, 0, 0
+
+    /**
+     * UBX-CFG-CFG — save current config to flash so it survives power cycles.
+     */
+    private static byte[] ubxCfgCfg() {
+        return ubx(0x06, 0x09, new byte[]{
+            0x00, 0x00, 0x00, 0x00,                         // clearMask
+            (byte)0xFF,(byte)0xFF, 0x00, 0x00,              // saveMask (all)
+            0x00, 0x00, 0x00, 0x00                          // loadMask
         });
     }
 
@@ -372,21 +386,26 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     private void configureUblox() {
         try { Thread.sleep(600); } catch (InterruptedException ignored) {}
         sendUbx(ubxCfgRate(currentHz));
-    
-        // ── Enable all constellations ──────────────────────────────
+
+        // Enable all constellations (M7 silently ignores Galileo/BeiDou blocks)
         sendUbx(ubxCfgGnss());
-        try { Thread.sleep(300); } catch (InterruptedException ignored) {} // module needs time to reconfigure
-    
+        try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+
+        // Enable SBAS (MSAS has partial Philippines coverage; others auto-scanned)
+        sendUbx(ubxCfgSbas());
+        try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+
         sendUbx(ubxCfgMsg(0xF0, 0x41, 0)); // disable GPTXT
         sendUbx(ubxCfgMsg(0xF0, 0x02, 0)); // disable GSA
         sendUbx(ubxCfgMsg(0xF0, 0x01, 0)); // disable GLL
         sendUbx(ubxCfgMsg(0xF0, 0x05, 0)); // disable VTG
         sendUbx(ubxCfgMsg(0xF0, 0x00, 1)); // GGA on
         sendUbx(ubxCfgMsg(0xF0, 0x04, 1)); // RMC on
-        sendUbx(ubxCfgMsg(0xF0, 0x03, 1)); // GSV on
-    
-        sendUbx(ubxCfgCfg()); // save to flash
-        Log.d(TAG, "UBX configured at " + currentHz + " Hz with multi-constellation");
+        sendUbx(ubxCfgMsg(0xF0, 0x03, 1)); // GSV on  (all constellations)
+
+        // Save config to flash so it survives power cycles
+        sendUbx(ubxCfgCfg());
+        Log.d(TAG, "UBX configured at " + currentHz + " Hz with multi-constellation + SBAS");
     }
 
     private void applyHzConfig() {
@@ -621,6 +640,8 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             case "Galileo": return "GAL";
             case "BeiDou":  return "BDU";
             case "QZSS":    return "QZS";
+            case "SBAS":    return "SBS";
+            case "GNSS":    return "GNS";
             default:        return name.substring(0, Math.min(3, name.length())).toUpperCase();
         }
     }
