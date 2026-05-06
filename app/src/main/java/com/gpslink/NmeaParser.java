@@ -1,4 +1,4 @@
-package com.gpslink;
+package com.ubloxbridge;
 
 import android.util.Log;
 import java.util.ArrayList;

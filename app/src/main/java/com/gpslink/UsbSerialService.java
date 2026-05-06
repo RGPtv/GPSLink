@@ -1,4 +1,4 @@
-package com.gpslink;
+package com.ubloxbridge;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -42,12 +42,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class UsbSerialService extends Service implements SerialInputOutputManager.Listener {
 
-    private static final String TAG              = "GPS Link";
-    public  static final String CHANNEL_ID       = "gps_link";
+    private static final String TAG              = "UbloxBridge";
+    public  static final String CHANNEL_ID       = "ublox_bridge";
     public  static final int    NOTIFICATION_ID  = 1;
-    public  static final String ACTION_STATUS    = "com.gpslink.STATUS";
-    public  static final String ACTION_SET_HZ    = "com.gpslink.SET_HZ";
-    private static final String ACTION_USB_PERM  = "com.gpslink.USB_PERMISSION";
+    public  static final String ACTION_STATUS    = "com.ubloxbridge.STATUS";
+    public  static final String ACTION_SET_HZ    = "com.ubloxbridge.SET_HZ";
+    private static final String ACTION_USB_PERM  = "com.ubloxbridge.USB_PERMISSION";
     public  static final String EXTRA_HZ         = "hz";
 
     private static final int[]  SUPPORTED_HZ     = {1, 5, 10};
@@ -233,7 +233,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         // BUG FIX: pm could theoretically be null; guard it
         if (pm != null) {
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GpsLink:serial");
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UbloxBridge:serial");
         }
         createNotificationChannel();
 
@@ -804,7 +804,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
 
     private void createNotificationChannel() {
         NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, "GPS Link", NotificationManager.IMPORTANCE_LOW);
+                CHANNEL_ID, "UbloxBridge GPS", NotificationManager.IMPORTANCE_LOW);
         ch.setDescription("Live GPS from u-blox receiver");
         getSystemService(NotificationManager.class).createNotificationChannel(ch);
     }
@@ -814,7 +814,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("GPS Link · " + currentHz + " Hz")
+                .setContentTitle("UbloxBridge · " + currentHz + " Hz")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setContentIntent(pi)
