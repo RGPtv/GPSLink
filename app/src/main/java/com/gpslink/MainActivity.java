@@ -1,4 +1,4 @@
-package com.ubloxbridge;
+package com.gpslink;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
