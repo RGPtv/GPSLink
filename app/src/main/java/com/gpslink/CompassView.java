@@ -1,4 +1,4 @@
-package com.ubloxbridge;
+package com.gpslink;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
