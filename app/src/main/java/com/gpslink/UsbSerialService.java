@@ -525,10 +525,14 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 // GPS entries permanently in seenSats).
                 boolean isFirstMsg = parts.length > 2 && "1".equals(parts[2].trim());
                 if (isFirstMsg) {
-                    // Derive the reset prefix from the raw talker header, not the parsed sat
                     String talkerConstellation = NmeaParser.constellationFromTalker(parts[0]);
-                    final String resetPrefix = talkerConstellation + ":";
-                    seenSats.entrySet().removeIf(e -> e.getKey().startsWith(resetPrefix));
+                    if ("GNSS".equals(talkerConstellation)) {
+                        // $GN talker aggregates all constellations — clear everything
+                        seenSats.clear();
+                    } else {
+                        final String resetPrefix = talkerConstellation + ":";
+                        seenSats.entrySet().removeIf(e -> e.getKey().startsWith(resetPrefix));
+                    }
                 }
                 for (NmeaParser.SatInfo s : sats) {
                     seenSats.put(s.constellation + ":" + s.prn, s);
