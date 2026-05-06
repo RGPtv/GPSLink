@@ -1,4 +1,4 @@
-package com.ubloxbridge;
+package com.gpslink;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
