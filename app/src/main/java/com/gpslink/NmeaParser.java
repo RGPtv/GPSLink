@@ -68,12 +68,16 @@ public class NmeaParser {
         }
         return null;
     }
-
-    /** True when the body's sentence-type (chars 3-5 of talker+type) matches. */
+    
+    // Replace isType() with this — works for 1-char ($P), 2-char ($GP), and longer talkers
     private static boolean isType(String body, String type) {
-        // body starts with "$XX" talker (2 chars) then message type
-        return body.length() >= 3 + type.length()
-                && body.regionMatches(3, type, 0, type.length());
+        if (body == null) return false;
+        // Find where the message-type field starts: after '$' + talker chars
+        // All standard NMEA sentences: '$' + 2-char talker + 3-char type = 6 chars min
+        // Proprietary: '$P' + type directly
+        int typeStart = body.startsWith("$P") ? 2 : 3;
+        return body.length() >= typeStart + type.length()
+                && body.regionMatches(true, typeStart, type, 0, type.length());
     }
 
     // ── GGA ───────────────────────────────────────────────────────────────────
@@ -154,24 +158,20 @@ public class NmeaParser {
 
         String constellation = getConstellation(p[0]);
         int idx = 4;
-        while (idx + 3 < p.length) {
+        while (idx < p.length) {
+            // A group needs at least prn + elevation + azimuth; snr may be absent
+            if (idx >= p.length) break;
             String prnStr = p[idx].trim();
             if (prnStr.isEmpty()) break;
             try {
-                SatInfo s    = new SatInfo();
+                SatInfo s       = new SatInfo();
                 s.constellation = constellation;
-                s.prn       = Integer.parseInt(prnStr);
-                // SBAS satellites broadcast on PRNs 120–158. Some receivers
-                // report them under the $GP talker instead of $GS, so we
-                // override the constellation label by PRN range.
+                s.prn           = Integer.parseInt(prnStr);
                 if (isSbasPrn(s.prn)) s.constellation = "SBAS";
-                s.elevation = clamp(parseIntSafe(p[idx + 1]),  0,  90);
-                s.azimuth   = clamp(parseIntSafe(p[idx + 2]),  0, 360);
-                // SNR: last field of a group may be followed by '*' in some
-                // receivers when the group is the final one in a message.
-                // Strip any trailing non-digit suffix before parsing.
-                String snrStr = p[idx + 3].replaceAll("[^\\d]", "");
-                s.snr       = snrStr.isEmpty() ? 0 : Integer.parseInt(snrStr);
+                s.elevation = (idx + 1 < p.length) ? clamp(parseIntSafe(p[idx + 1]), 0, 90)  : 0;
+                s.azimuth   = (idx + 2 < p.length) ? clamp(parseIntSafe(p[idx + 2]), 0, 360) : 0;
+                String snrRaw = (idx + 3 < p.length) ? p[idx + 3].replaceAll("[^\\d]", "") : "";
+                s.snr       = snrRaw.isEmpty() ? 0 : Integer.parseInt(snrRaw);
                 result.add(s);
             } catch (NumberFormatException e) {
                 Log.w(TAG, "GSV field parse error at idx=" + idx);
