@@ -1,4 +1,4 @@
-# UbloxBridge
+# GPSLink
 
 > Android app that bridges a u-blox GPS/GNSS receiver connected over USB directly into Android's mock location provider — no root required.
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-UbloxBridge connects to a u-blox GNSS module via USB OTG, parses raw NMEA sentences in real-time, and injects position data into Android's mock location system. Any app that reads device location (Maps, navigation, survey tools, etc.) will see the u-blox fix instead of the built-in GPS.
+GPSLink connects to a u-blox GNSS module via USB OTG, parses raw NMEA sentences in real-time, and injects position data into Android's mock location system. Any app that reads device location (Maps, navigation, survey tools, etc.) will see the u-blox fix instead of the built-in GPS.
 
 <br>
 
@@ -45,7 +45,7 @@ Any u-blox receiver with USB VID `0x1546` (5446 decimal):
 
 - Android 8.0 (API 26) or higher
 - USB OTG cable or adapter
-- **Developer Options → Mock Location App** set to UbloxBridge (see Setup below)
+- **Developer Options → Mock Location App** set to GPSlink (see Setup below)
 
 <br>
 
@@ -55,7 +55,7 @@ Any u-blox receiver with USB VID `0x1546` (5446 decimal):
 
 1. Go to **Settings → About Phone** and tap **Build Number** 7 times to enable Developer Options
 2. Go to **Settings → Developer Options → Select mock location app**
-3. Choose **UbloxBridge**
+3. Choose **GPSlink**
 
 ### 2. Grant Location Permission
 
@@ -150,7 +150,7 @@ SBAS satellites are identified by PRN range 120–158 regardless of which talker
 ## Project Structure
 
 ```
-app/src/main/java/com/ubloxbridge/
+app/src/main/java/com/gpslink/
 ├── MainActivity.java        — UI, broadcast receiver, state restore
 ├── UsbSerialService.java    — Foreground service, USB I/O, UBX config, mock location
 ├── NmeaParser.java          — NMEA sentence parser (GGA, RMC, GSV) + checksum verification
