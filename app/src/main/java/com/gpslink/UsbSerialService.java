@@ -42,12 +42,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class UsbSerialService extends Service implements SerialInputOutputManager.Listener {
 
-    private static final String TAG              = "UbloxBridge";
-    public  static final String CHANNEL_ID       = "ublox_bridge";
+    private static final String TAG              = "GPSlink";
+    public  static final String CHANNEL_ID       = "GPS_Link";
     public  static final int    NOTIFICATION_ID  = 1;
-    public  static final String ACTION_STATUS    = "com.ubloxbridge.STATUS";
-    public  static final String ACTION_SET_HZ    = "com.ubloxbridge.SET_HZ";
-    private static final String ACTION_USB_PERM  = "com.ubloxbridge.USB_PERMISSION";
+    public  static final String ACTION_STATUS    = "com.gpslink.STATUS";
+    public  static final String ACTION_SET_HZ    = "com.gpslink.SET_HZ";
+    private static final String ACTION_USB_PERM  = "com.gpslink.USB_PERMISSION";
     public  static final String EXTRA_HZ         = "hz";
 
     private static final int[]  SUPPORTED_HZ     = {1, 5, 10};
@@ -804,7 +804,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
 
     private void createNotificationChannel() {
         NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, "UbloxBridge GPS", NotificationManager.IMPORTANCE_LOW);
+                CHANNEL_ID, "GPSLink GPS", NotificationManager.IMPORTANCE_LOW);
         ch.setDescription("Live GPS from u-blox receiver");
         getSystemService(NotificationManager.class).createNotificationChannel(ch);
     }
@@ -814,7 +814,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("UbloxBridge · " + currentHz + " Hz")
+                .setContentTitle("GPSLink · " + currentHz + " Hz")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setContentIntent(pi)
