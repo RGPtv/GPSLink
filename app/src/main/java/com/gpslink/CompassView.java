@@ -15,7 +15,7 @@ import android.view.animation.DecelerateInterpolator;
  * to a new heading using a smooth ValueAnimator.
  *
  * Usage in XML:
- *   <com.ubloxbridge.CompassView
+ *   <com.gpslink.CompassView
  *       android:id="@+id/compassView"
  *       android:layout_width="110dp"
  *       android:layout_height="110dp" />
