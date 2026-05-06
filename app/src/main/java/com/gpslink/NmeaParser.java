@@ -213,7 +213,7 @@ public class NmeaParser {
      * SBAS geostationary satellites use PRNs 120–158 in NMEA sentences.
      */
     public static boolean isSbasPrn(int prn) {
-        return prn >= 120 && prn <= 158;
+        return (prn >= 33 && prn <= 64) || (prn >= 120 && prn <= 158);
     }
 
     /**
