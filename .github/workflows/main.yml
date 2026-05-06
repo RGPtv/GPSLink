@@ -2,12 +2,21 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master ]   # debug builds on every push
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v1.1)'
+        required: true
+        default: 'v1.0'
 
 jobs:
-  build:
+
+  # ── Debug build — auto on every push to main ─────────────────────────────
+  build_debug:
+    name: Build Debug APK
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,9 +36,71 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: UbloxBridge-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+  # ── Release build — only when manually triggered ──────────────────────────
+  build_release:
+    name: Build & Publish Release APK
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $RUNNER_TEMP/ubloxbridge.keystore
+
+      - name: Build Release APK
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$RUNNER_TEMP/ubloxbridge.keystore \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/release/app-release.apk \
+             app/build/outputs/apk/release/UbloxBridge-${{ github.event.inputs.version }}.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: UbloxBridge ${{ github.event.inputs.version }}
+          body: |
+            ## UbloxBridge ${{ github.event.inputs.version }}
+
+            ### Installation
+            1. Download `UbloxBridge-${{ github.event.inputs.version }}.apk` below
+            2. Enable **Install unknown apps** on your device
+            3. Go to **Developer Options → Mock Location App** → select UbloxBridge
+            4. Open the app and grant Location permission
+            5. Plug in your u-blox receiver via USB OTG and tap **Start**
+
+            ### Requirements
+            - Android 8.0+ (API 26)
+            - u-blox GNSS receiver (M7 / M8 / M9 / M10) via USB OTG
+          files: app/build/outputs/apk/release/UbloxBridge-${{ github.event.inputs.version }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
