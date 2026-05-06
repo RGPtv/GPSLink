@@ -751,7 +751,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     private static String fixLabel(int q) {
         switch (q) {
             case 1:  return "GPS";
-            case 2:  return "DGPS";
+            case 2:  return "DGPS/SBAS";   // ← update this line only
             case 3:  return "PPS";
             case 4:  return "RTK Fixed";
             case 5:  return "RTK Float";
