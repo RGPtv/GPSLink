@@ -1,2 +1,2 @@
-rootProject.name = "UbloxBridge"
+rootProject.name = "GPSLink"
 include ':app'
