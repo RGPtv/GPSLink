@@ -1,4 +1,4 @@
-package com.ubloxbridge;
+package com.gpslink;
 
 import android.content.Context;
 import android.graphics.Canvas;
