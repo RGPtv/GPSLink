@@ -198,7 +198,3 @@ implementation 'com.github.mik3y:usb-serial-for-android:3.4.6'
 | `android.hardware.usb.host` | USB OTG host feature declaration |
 
 <br>
-
-## License
-
-MIT License — see `LICENSE` for details.
