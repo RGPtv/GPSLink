@@ -3,10 +3,10 @@ plugins {
 }
 
 android {
-    namespace 'com.ubloxbridge' 
+    namespace 'com.gpslink' 
     compileSdk 34
     defaultConfig {
-        applicationId "com.ubloxbridge"
+        applicationId "com.gpslink"
         minSdk 26
         targetSdk 34
         versionCode 1
