@@ -10,6 +10,10 @@ on:
         required: true
         default: 'v1.0'
 
+# Allow GITHUB_TOKEN to create releases
+permissions:
+  contents: write
+
 jobs:
 
   # ── Debug build — auto on every push to main ─────────────────────────────
@@ -66,7 +70,9 @@ jobs:
 
       - name: Decode keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $RUNNER_TEMP/ubloxbridge.keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" \
+            | tr -d '\n\r ' \
+            | base64 --decode > $RUNNER_TEMP/ubloxbridge.keystore
 
       - name: Build Release APK
         run: |
