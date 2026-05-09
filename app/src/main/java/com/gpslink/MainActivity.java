@@ -44,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String EM_DASH = "\u2014";
     private static final int REQUEST_LOCATION_PERMISSION = 1;
     private static final int REQUEST_BT_PERMISSION        = 2;
+    private static final int REQUEST_INITIAL_PERMISSIONS  = 3;
 
     // -- Bluetooth device selection
     private String selectedBtAddress = "";
@@ -244,6 +245,12 @@ public class MainActivity extends AppCompatActivity {
 
         if (lastMapLat != 0 && lastMapLon != 0) {
             miniMapView.setPosition(lastMapLat, lastMapLon);
+        }
+
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean("firstRun", true)) {
+            prefs.edit().putBoolean("firstRun", false).apply();
+            requestInitialPermissions();
         }
     }
 
@@ -893,6 +900,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // -- Permissions -----------------------------------------------------------
+
+    private void requestInitialPermissions() {
+        List<String> missingPermissions = new ArrayList<>();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            missingPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            missingPermissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                missingPermissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+                missingPermissions.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+        }
+        if (!missingPermissions.isEmpty()) {
+            ActivityCompat.requestPermissions(this, missingPermissions.toArray(new String[0]), REQUEST_INITIAL_PERMISSIONS);
+        }
+    }
 
     private boolean checkPermissions() {
         if (ContextCompat.checkSelfPermission(this,
