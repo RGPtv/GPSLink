@@ -1,461 +1,198 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#080C1A"
+    android:background="@color/bg_main"
     android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="14dp"
-        android:paddingBottom="28dp">
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="24dp">
 
-        <!-- ═══ STATUS BAR ══════════════════════════════════════════════════════ -->
-        <LinearLayout
+        <!-- == HEADER == -->
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="14dp">
+            android:layout_marginBottom="12dp">
 
-            <View
-                android:id="@+id/statusDot"
-                android:layout_width="8dp"
-                android:layout_height="8dp"
-                android:background="@drawable/dot_idle"
-                android:layout_marginEnd="8dp"/>
-
-            <TextView
-                android:id="@+id/tvConnection"
-                android:text="Idle"
-                android:textSize="12sp"
-                android:textColor="#6B7280"
-                android:fontFamily="monospace"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"/>
-
-            <TextView
-                android:id="@+id/tvLastFix"
-                android:text=""
-                android:textSize="10sp"
-                android:textColor="#374151"
-                android:fontFamily="monospace"
+            <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
-        </LinearLayout>
-
-        <!-- ═══ POSITION CARD (Lat / Lon / Alt separated) ═════════════════════ -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/card_bg"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
-
-            <TextView
-                android:text="POSITION"
-                android:textSize="9sp"
-                android:textColor="#3B82F6"
-                android:letterSpacing="0.15"
-                android:layout_marginBottom="12dp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
-
-            <!-- Lat + Lon row -->
-            <LinearLayout
-                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="8dp">
-
-                <!-- Latitude -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:background="@drawable/coord_cell_bg"
-                    android:padding="12dp"
-                    android:layout_marginEnd="6dp">
-
-                    <TextView
-                        android:text="LATITUDE"
-                        android:textSize="8sp"
-                        android:textColor="#4B5563"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="6dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvLatitude"
-                        android:text="―"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"
-                        android:textColor="#E2E8F0"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvLatDir"
-                        android:text=""
-                        android:textSize="9sp"
-                        android:textColor="#374151"
-                        android:fontFamily="monospace"
-                        android:layout_marginTop="2dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-
-                <!-- Longitude -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:background="@drawable/coord_cell_bg"
-                    android:padding="12dp"
-                    android:layout_marginStart="6dp">
-
-                    <TextView
-                        android:text="LONGITUDE"
-                        android:textSize="8sp"
-                        android:textColor="#4B5563"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="6dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvLongitude"
-                        android:text="―"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"
-                        android:textColor="#E2E8F0"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvLonDir"
-                        android:text=""
-                        android:textSize="9sp"
-                        android:textColor="#374151"
-                        android:fontFamily="monospace"
-                        android:layout_marginTop="2dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Altitude full-width row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:background="@drawable/coord_cell_bg"
-                android:padding="12dp"
-                android:gravity="center_vertical">
-
+                android:orientation="vertical">
+                
                 <TextView
-                    android:text="ALTITUDE"
-                    android:textSize="8sp"
-                    android:textColor="#4B5563"
-                    android:letterSpacing="0.1"
+                    android:id="@+id/tvAppName"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="16dp"/>
-
-                <TextView
-                    android:id="@+id/tvAltitude"
-                    android:text="―"
-                    android:textSize="22sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:textColor="#67E8F9"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"/>
-
-                <TextView
-                    android:text="m MSL"
-                    android:textSize="10sp"
-                    android:textColor="#374151"
-                    android:fontFamily="monospace"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"/>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- ═══ COMPASS + SAT/SIGNAL ═══════════════════════════════════════════ -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="10dp">
-
-            <!-- Compass Card -->
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:background="@drawable/card_bg"
-                android:padding="14dp"
-                android:gravity="center_horizontal"
-                android:layout_marginEnd="6dp">
-
-                <TextView
-                    android:text="HEADING"
-                    android:textSize="9sp"
-                    android:textColor="#3B82F6"
-                    android:letterSpacing="0.15"
-                    android:layout_marginBottom="10dp"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"/>
-
-                <!-- Custom rotating compass needle view -->
-                <com.gpslink.CompassView
-                    android:id="@+id/compassView"
-                    android:layout_width="110dp"
-                    android:layout_height="110dp"/>
-
-                <TextView
-                    android:id="@+id/tvHeading"
-                    android:text="―"
+                    android:text="@string/app_name"
+                    android:textColor="@color/text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:textColor="#60A5FA"
-                    android:layout_marginTop="8dp"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"/>
+                    android:letterSpacing="0.02" />
 
-                <TextView
-                    android:id="@+id/tvHeadingDir"
-                    android:text="―"
-                    android:textSize="11sp"
-                    android:textColor="#4B5563"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="2dp"
+                <LinearLayout
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"/>
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="2dp">
+
+                    <View
+                        android:id="@+id/statusDot"
+                        android:layout_width="8dp"
+                        android:layout_height="8dp"
+                        android:background="@drawable/dot_idle"
+                        android:layout_marginEnd="6dp" />
+
+                    <TextView
+                        android:id="@+id/tvConnection"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Idle"
+                        android:textColor="@color/text_dim"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
             </LinearLayout>
 
-            <!-- Satellites + Signal stacked -->
+            <ImageButton
+                android:id="@+id/btnSettings"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:background="@drawable/hdr_btn_bg"
+                android:contentDescription="Settings"
+                android:scaleType="centerInside"
+                android:padding="10dp"
+                android:src="@drawable/ic_settings" />
+        </RelativeLayout>
+
+        <!-- == MOCK LOCATION WARNING (Hidden by default) == -->
+        <LinearLayout
+            android:id="@+id/cardMockWarning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:backgroundTint="#2D1C1C"
+            android:padding="14dp"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/msg_no_mock_provider"
+                android:textColor="@color/accent_red"
+                android:textStyle="bold"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="The app must be selected in Developer Options to provide mock GPS data to other apps."
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:layout_marginTop="4dp" />
+
+            <Button
+                android:id="@+id/btnFixMock"
+                android:layout_width="wrap_content"
+                android:layout_height="30dp"
+                android:layout_marginTop="8dp"
+                android:text="@string/btn_fix_mock"
+                android:textSize="10sp"
+                android:paddingStart="10dp"
+                android:paddingEnd="12dp"
+                android:backgroundTint="@color/accent_red"
+                android:textColor="@color/text_on_primary"
+                android:stateListAnimator="@null" />
+        </LinearLayout>
+
+        <!-- == DATA SUMMARY BAR == -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@drawable/card_bg"
+            android:padding="12dp"
+            android:layout_marginBottom="16dp">
+
             <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:id="@+id/tvHdrSub"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="USB Serial"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace" />
+                <TextView
+                    android:id="@+id/tvLocation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#8212;"
+                    android:textColor="@color/text_dim"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginTop="2dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginStart="6dp">
-
-                <!-- Satellites (in view | in use) -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:background="@drawable/card_bg"
-                    android:padding="14dp"
-                    android:layout_marginBottom="8dp">
-
-                    <TextView
-                        android:text="SATELLITES"
-                        android:textSize="9sp"
-                        android:textColor="#3B82F6"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="8dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal">
-
-                        <!-- In View -->
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvSatsInView"
-                                android:text="―"
-                                android:textSize="26sp"
-                                android:textStyle="bold"
-                                android:fontFamily="monospace"
-                                android:textColor="#FBBF24"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"/>
-
-                            <TextView
-                                android:text="in view"
-                                android:textSize="9sp"
-                                android:textColor="#374151"
-                                android:layout_marginTop="2dp"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"/>
-                        </LinearLayout>
-
-                        <!-- Divider -->
-                        <View
-                            android:layout_width="1dp"
-                            android:layout_height="match_parent"
-                            android:background="#1E2A44"
-                            android:layout_marginEnd="10dp"/>
-
-                        <!-- In Use -->
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvSatsUsed"
-                                android:text="―"
-                                android:textSize="26sp"
-                                android:textStyle="bold"
-                                android:fontFamily="monospace"
-                                android:textColor="#34D399"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"/>
-
-                            <TextView
-                                android:text="in use"
-                                android:textSize="9sp"
-                                android:textColor="#374151"
-                                android:layout_marginTop="2dp"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"/>
-                        </LinearLayout>
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- Signal -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:background="@drawable/card_bg"
-                    android:padding="14dp">
-
-                    <TextView
-                        android:text="SIGNAL"
-                        android:textSize="9sp"
-                        android:textColor="#3B82F6"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="8dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <com.gpslink.SignalBarsView
-                        android:id="@+id/signalBarsView"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvSignal"
-                        android:text=""
-                        android:textSize="9sp"
-                        android:fontFamily="monospace"
-                        android:textColor="#374151"
-                        android:layout_marginTop="6dp"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
+                android:gravity="end">
+                <TextView
+                    android:id="@+id/tvLastFix"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#8212;"
+                    android:textColor="@color/text_dim"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace" />
+                <TextView
+                    android:id="@+id/tvSignal"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#8212;"
+                    android:textColor="@color/accent_emerald"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginTop="2dp" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- ═══ MOVEMENT 2x2 GRID ═══════════════════════════════════════════════ -->
+        <!-- == POSITION CARD == -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/card_bg"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
 
             <TextView
-                android:text="MOVEMENT"
-                android:textSize="9sp"
-                android:textColor="#3B82F6"
-                android:letterSpacing="0.15"
-                android:layout_marginBottom="12dp"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
-
-            <LinearLayout
-                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="8dp">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginEnd="6dp">
-
-                    <TextView
-                        android:text="SPEED"
-                        android:textSize="8sp"
-                        android:textColor="#4B5563"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="4dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvSpeed"
-                        android:text="―"
-                        android:textSize="15sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"
-                        android:textColor="#A5F3FC"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="6dp">
-
-                    <TextView
-                        android:text="COURSE"
-                        android:textSize="8sp"
-                        android:textColor="#4B5563"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="4dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvCourse"
-                        android:text="―"
-                        android:textSize="15sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"
-                        android:textColor="#A5F3FC"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-            </LinearLayout>
+                android:text="@string/title_position"
+                android:textColor="@color/primary"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="14dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -467,26 +204,12 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
+                    android:background="@drawable/coord_cell_bg"
+                    android:padding="12dp"
                     android:layout_marginEnd="6dp">
-
-                    <TextView
-                        android:text="HDOP"
-                        android:textSize="8sp"
-                        android:textColor="#4B5563"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="4dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvHdop"
-                        android:text="―"
-                        android:textSize="15sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"
-                        android:textColor="#A5F3FC"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                    <TextView android:text="@string/label_latitude" android:textSize="9sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_marginBottom="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvLatitude" android:text="&#8212;" android:textSize="18sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvLatDir" android:text="" android:textSize="10sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
                 </LinearLayout>
 
                 <LinearLayout
@@ -494,196 +217,249 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
+                    android:background="@drawable/coord_cell_bg"
+                    android:padding="12dp"
                     android:layout_marginStart="6dp">
-
-                    <TextView
-                        android:text="FIX TYPE"
-                        android:textSize="8sp"
-                        android:textColor="#4B5563"
-                        android:letterSpacing="0.1"
-                        android:layout_marginBottom="4dp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-
-                    <TextView
-                        android:id="@+id/tvFixType"
-                        android:text="―"
-                        android:textSize="15sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"
-                        android:textColor="#22C55E"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                    <TextView android:text="@string/label_longitude" android:textSize="9sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_marginBottom="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvLongitude" android:text="&#8212;" android:textSize="18sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvLonDir" android:text="" android:textSize="10sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
                 </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/coord_cell_bg"
+                android:padding="12dp"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:text="@string/label_altitude" android:textSize="9sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_marginBottom="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvAltitude" android:text="&#8212;" android:textSize="26sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/accent_cyan" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:text="@string/label_altitude_msl" android:textSize="10sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <com.gpslink.MiniMapView
+                android:id="@+id/miniMapView"
+                android:layout_width="match_parent"
+                android:layout_height="140dp"
+                android:layout_marginTop="12dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"/>
+        </LinearLayout>
+
+        <!-- == MOVEMENT + HEADING ROW == -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:background="@drawable/card_bg"
+                android:padding="16dp"
+                android:layout_marginEnd="6dp"
+                android:gravity="center_horizontal">
+
+                <TextView android:text="@string/title_heading" android:textSize="10sp" android:textColor="@color/primary" android:textStyle="bold" android:layout_marginBottom="12dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+
+                <com.gpslink.CompassView
+                    android:id="@+id/compassView"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:minHeight="90dp"/>
+
+                <TextView android:id="@+id/tvHeading" android:text="&#8212;" android:textSize="22sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/primary" android:layout_marginTop="10dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <TextView android:id="@+id/tvHeadingDir" android:text="&#8212;" android:textSize="12sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:background="@drawable/card_bg"
+                android:padding="16dp"
+                android:layout_marginStart="6dp">
+
+                <TextView android:text="@string/title_satellite" android:textSize="10sp" android:textColor="@color/primary" android:textStyle="bold" android:layout_marginBottom="12dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:background="@drawable/coord_cell_bg" android:padding="8dp" android:gravity="center_horizontal" android:layout_marginEnd="4dp">
+                        <TextView android:id="@+id/tvSatsInView" android:text="&#8212;" android:textSize="22sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/accent_amber" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                        <TextView android:text="@string/label_in_view" android:textSize="9sp" android:textColor="@color/text_dim" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:background="@drawable/coord_cell_bg" android:padding="8dp" android:gravity="center_horizontal" android:layout_marginStart="4dp">
+                        <TextView android:id="@+id/tvSatsUsed" android:text="&#8212;" android:textSize="22sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/accent_emerald" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                        <TextView android:text="@string/label_in_use" android:textSize="9sp" android:textColor="@color/text_dim" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <com.gpslink.SignalBarsView
+                    android:id="@+id/signalBarsView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- ═══ UPDATE RATE ══════════════════════════════════════════════════════ -->
+        <!-- == MOVEMENT CARD == -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/card_bg"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
+            android:padding="12dp"
+            android:layout_marginBottom="12dp">
 
-            <TextView
-                android:text="UPDATE RATE"
-                android:textSize="9sp"
-                android:textColor="#3B82F6"
-                android:letterSpacing="0.15"
-                android:layout_marginBottom="12dp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
+            <TextView android:text="@string/title_movement" android:textSize="10sp" android:textColor="@color/primary" android:textStyle="bold" android:layout_marginBottom="14dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
 
-            <LinearLayout
+            <GridLayout
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:orientation="horizontal"
-                android:background="@drawable/hz_track_bg"
-                android:padding="3dp">
+                android:layout_height="wrap_content"
+                android:columnCount="2"
+                android:rowCount="2">
 
-                <Button
-                    android:id="@+id/btn1Hz"
-                    android:text="1 Hz"
-                    android:textSize="13sp"
-                    android:fontFamily="monospace"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:backgroundTint="#2563EB"
-                    android:textColor="#FFFFFF"
-                    android:stateListAnimator="@null"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"/>
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:orientation="vertical" android:background="@drawable/coord_cell_bg" android:padding="10dp" android:layout_marginEnd="4dp" android:layout_marginBottom="8dp">
+                    <TextView android:text="@string/label_speed" android:textSize="9sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_marginBottom="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvSpeed" android:text="&#8212;" android:textSize="15sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/accent_cyan" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
 
-                <Button
-                    android:id="@+id/btn5Hz"
-                    android:text="5 Hz"
-                    android:textSize="13sp"
-                    android:fontFamily="monospace"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:backgroundTint="#0A1020"
-                    android:textColor="#4B5563"
-                    android:stateListAnimator="@null"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"/>
-            </LinearLayout>
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:orientation="vertical" android:background="@drawable/coord_cell_bg" android:padding="10dp" android:layout_marginStart="4dp" android:layout_marginBottom="8dp">
+                    <TextView android:text="@string/label_course" android:textSize="9sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_marginBottom="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvCourse" android:text="&#8212;" android:textSize="15sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/accent_cyan" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvHzNote"
-                android:text="1 Hz · 1 update per second"
-                android:textSize="9sp"
-                android:textColor="#374151"
-                android:fontFamily="monospace"
-                android:layout_marginTop="10dp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:orientation="vertical" android:background="@drawable/coord_cell_bg" android:padding="10dp" android:layout_marginEnd="4dp">
+                    <TextView android:text="@string/label_hdop" android:textSize="9sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_marginBottom="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvHdop" android:text="&#8212;" android:textSize="15sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/accent_cyan" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1" android:orientation="vertical" android:background="@drawable/coord_cell_bg" android:padding="10dp" android:layout_marginStart="4dp">
+                    <TextView android:text="@string/label_fix_type" android:textSize="9sp" android:fontFamily="monospace" android:textColor="@color/text_dim" android:layout_marginBottom="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvFixType" android:text="&#8212;" android:textSize="15sp" android:textStyle="bold" android:fontFamily="monospace" android:textColor="@color/accent_emerald" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+            </GridLayout>
         </LinearLayout>
 
-        <!-- ═══ CONTROL BUTTONS ══════════════════════════════════════════════════ -->
-        <LinearLayout
+        <!-- == MAIN ACTION BUTTON == -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="10dp">
-
+            android:layout_marginBottom="24dp">
+            
             <Button
-                android:id="@+id/btnStart"
-                android:text="▶  START"
-                android:textSize="13sp"
+                android:id="@+id/btnAction"
+                android:layout_width="match_parent"
+                android:layout_height="64dp"
+                android:text="@string/btn_start"
+                android:textSize="18sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:backgroundTint="#16A34A"
-                android:textColor="#FFFFFF"
-                android:stateListAnimator="@null"/>
+                android:background="@drawable/button_action_bg"
+                app:backgroundTint="@null"
+                android:textColor="@color/text_on_primary"
+                android:stateListAnimator="@null"
+                android:elevation="4dp" />
+        </FrameLayout>
 
-            <Button
-                android:id="@+id/btnStop"
-                android:text="■  STOP"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:backgroundTint="#DC2626"
-                android:textColor="#FFFFFF"
-                android:stateListAnimator="@null"/>
-        </LinearLayout>
-
-        <!-- ═══ SERIAL LOG ════════════════════════════════════════════════════════ -->
+        <!-- == SERIAL LOG (Collapsible) == -->
         <LinearLayout
+            android:id="@+id/layoutSerial"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/log_bg"
             android:padding="14dp"
-            android:layout_marginBottom="10dp">
-
+            android:layout_marginBottom="16dp">
+            
             <LinearLayout
+                android:id="@+id/headerSerial"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="10dp">
-
+                android:clickable="true"
+                android:focusable="true">
+                
                 <TextView
-                    android:text="SERIAL LOG"
-                    android:textSize="9sp"
-                    android:textColor="#374151"
-                    android:letterSpacing="0.12"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"/>
+                    android:layout_weight="1"
+                    android:text="@string/title_serial_log"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/text_dim"
+                    android:letterSpacing="0.1" />
 
                 <TextView
                     android:id="@+id/tvSerialStats"
-                    android:text=""
-                    android:textSize="9sp"
-                    android:textColor="#1F2937"
-                    android:fontFamily="monospace"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"/>
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/text_dim" />
+
+                <ImageView
+                    android:id="@+id/ivSerialChevron"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_marginStart="8dp"
+                    android:src="@android:drawable/arrow_down_float"
+                    android:alpha="0.5" />
             </LinearLayout>
 
             <TextView
                 android:id="@+id/tvSerial"
-                android:text="―"
-                android:textSize="9sp"
-                android:fontFamily="monospace"
-                android:textColor="#22C55E"
-                android:lineSpacingMultiplier="1.6"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:maxLines="6"/>
+                android:layout_marginTop="12dp"
+                android:text="&#8212;"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/accent_emerald"
+                android:lineSpacingMultiplier="1.6"
+                android:maxLines="8"
+                android:visibility="gone" />
         </LinearLayout>
 
-        <!-- ═══ FOOTER ═══════════════════════════════════════════════════════════ -->
+        <!-- == FOOTER == -->
         <TextView
-            android:layout_marginTop="10dp"
-            android:text="⚠  Set as Mock Location Provider in Developer Options"
-            android:textSize="9sp"
-            android:textColor="#D97706"
-            android:textAlignment="center"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"/>
-
+            android:layout_height="wrap_content"
+            android:text="@string/msg_mock_provider"
+            android:textSize="10sp"
+            android:textColor="@color/accent_amber"
+            android:textAlignment="center"
+            android:layout_marginTop="8dp" />
+            
         <TextView
-            android:layout_marginTop="4dp"
-            android:text="Service keeps running while notification is active"
-            android:textSize="9sp"
-            android:textColor="#1F2937"
-            android:textAlignment="center"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"/>
+            android:layout_height="wrap_content"
+            android:text="@string/msg_service_running"
+            android:textSize="10sp"
+            android:textColor="@color/text_dim"
+            android:textAlignment="center"
+            android:layout_marginTop="4dp" />
 
     </LinearLayout>
 </ScrollView>

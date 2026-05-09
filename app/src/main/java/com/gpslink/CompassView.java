@@ -11,7 +11,7 @@ import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
 /**
- * CompassView — draws a GPS-style compass dial and animates the needle
+ * CompassView draws a GPS-style compass dial and animates the needle
  * to a new heading using a smooth ValueAnimator.
  *
  * Usage in XML:
@@ -25,19 +25,19 @@ import android.view.animation.DecelerateInterpolator;
  */
 public class CompassView extends View {
 
-    // ── Colours ──────────────────────────────────────────────────────────────
-    private static final int COL_RING_BG      = 0xFF0D1F38;
-    private static final int COL_RING_BORDER  = 0xFF1E3A5F;
-    private static final int COL_TICK_MAJOR   = 0xFF2E4996;
-    private static final int COL_TICK_MINOR   = 0xFF1A2D45;
-    private static final int COL_LABEL_NSEW   = 0xFFCBD5E1;
-    private static final int COL_LABEL_N      = 0xFFEF4444;  // North is red
-    private static final int COL_NEEDLE_NORTH = 0xFFEF4444;  // red tip
-    private static final int COL_NEEDLE_SOUTH = 0xFF4B5563;  // gray tail
-    private static final int COL_CENTER_FILL  = 0xFF1E3A5F;
-    private static final int COL_CENTER_RING  = 0xFF3B82F6;
+    // -- Colours --------------------------------------------------------------
+    private static final int COL_RING_BG      = 0xFF0F172A; // bg_card
+    private static final int COL_RING_BORDER  = 0xFF1E293B; // bg_surface
+    private static final int COL_TICK_MAJOR   = 0xFF3B82F6; // primary
+    private static final int COL_TICK_MINOR   = 0xFF1E293B; // bg_surface
+    private static final int COL_LABEL_NSEW   = 0xFF94A3B8; // text_secondary
+    private static final int COL_LABEL_N      = 0xFFEF4444; // accent_red
+    private static final int COL_NEEDLE_NORTH = 0xFFEF4444; // accent_red
+    private static final int COL_NEEDLE_SOUTH = 0xFF4A6080; // text_dim
+    private static final int COL_CENTER_FILL  = 0xFF0F172A; // bg_card
+    private static final int COL_CENTER_RING  = 0xFF3B82F6; // primary
 
-    // ── Paints ───────────────────────────────────────────────────────────────
+    // -- Paints ---------------------------------------------------------------
     private final Paint paintRing       = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint paintRingBorder = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint paintTickMajor  = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -49,7 +49,7 @@ public class CompassView extends View {
     private final Paint paintCenterFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint paintCenterRing = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    // ── State ─────────────────────────────────────────────────────────────────
+    // -- State -----------------------------------------------------------------
     // FIX: currentHeading was never reset when a new animator starts from a
     //      cancelled mid-flight animation; it now always starts from the true
     //      last-drawn angle, avoiding a visual snap back to 0 on rapid updates.
@@ -57,17 +57,17 @@ public class CompassView extends View {
 
     private ValueAnimator animator;
 
-    // ── Geometry (populated in onSizeChanged) ─────────────────────────────────
+    // -- Geometry (populated in onSizeChanged) ---------------------------------
     private float cx, cy, radius;
     private final RectF oval = new RectF();
 
-    // ── Re-usable Path objects (avoid per-frame allocation) ───────────────────
+    // -- Re-usable Path objects (avoid per-frame allocation) -------------------
     // FIX: Creating new Path objects inside onDraw() triggers GC on every frame.
     //      Reuse them instead.
     private final Path northPath = new Path();
     private final Path southPath = new Path();
 
-    // ── Constructor ──────────────────────────────────────────────────────────
+    // -- Constructor ----------------------------------------------------------
     public CompassView(Context context) {
         super(context);
         init();
@@ -132,10 +132,10 @@ public class CompassView extends View {
         oval.set(cx - radius, cy - radius, cx + radius, cy + radius);
     }
 
-    // ── Public API ────────────────────────────────────────────────────────────
+    // -- Public API ------------------------------------------------------------
 
     /**
-     * Animate the compass needle to the given heading (0–360°, 0 = North).
+     * Animate the compass needle to the given heading (0-360 degrees, 0 = North).
      * Picks the shortest arc to avoid spinning the wrong way.
      */
     public void setHeading(float newHeading) {
@@ -175,7 +175,7 @@ public class CompassView extends View {
         animator.start();
     }
 
-    // ── Drawing ───────────────────────────────────────────────────────────────
+    // -- Drawing ---------------------------------------------------------------
 
     @Override
     protected void onDraw(Canvas canvas) {
@@ -185,11 +185,11 @@ public class CompassView extends View {
         canvas.drawCircle(cx, cy, radius, paintRing);
         canvas.drawCircle(cx, cy, radius, paintRingBorder);
 
-        // 2. Ticks (drawn on the fixed dial — not rotated with heading)
+        // 2. Ticks (drawn on the fixed dial, not rotated with heading)
         for (int i = 0; i < 72; i++) {
             float angle = i * 5f;
-            boolean major = (i % 9 == 0);   // every 45°
-            boolean semi  = (i % 3 == 0);   // every 15°
+            boolean major = (i % 9 == 0);   // every 45 degrees
+            boolean semi  = (i % 3 == 0);   // every 15 degrees
             float innerFraction = major ? 0.76f : (semi ? 0.82f : 0.87f);
             float rad  = (float) Math.toRadians(angle - 90);
             float sinA = (float) Math.sin(rad);
@@ -210,7 +210,7 @@ public class CompassView extends View {
         canvas.drawText("E", cx + labelR + dpToPx(2),  cy + spToPx(4),          paintLabelCard);
         canvas.drawText("W", cx - labelR - dpToPx(2),  cy + spToPx(4),          paintLabelCard);
 
-        // 4. Rotating needle — rotate canvas around center by heading
+        // 4. Rotating needle: rotate canvas around center by heading
         canvas.save();
         canvas.rotate(currentHeading, cx, cy);
 
@@ -242,7 +242,7 @@ public class CompassView extends View {
         canvas.drawCircle(cx, cy, pivotR, paintCenterRing);
     }
 
-    // ── View lifecycle ────────────────────────────────────────────────────────
+    // -- View lifecycle --------------------------------------------------------
 
     /**
      * FIX: Cancel any running animator when the view is detached to prevent
@@ -257,7 +257,7 @@ public class CompassView extends View {
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // -- Helpers ---------------------------------------------------------------
 
     private float dpToPx(float dp) {
         return dp * getResources().getDisplayMetrics().density;

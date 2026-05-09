@@ -1,6 +1,9 @@
 package com.gpslink;
 
 import android.Manifest;
+import android.app.Dialog;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -9,7 +12,13 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.view.View;
+import android.view.Window;
 import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -21,155 +30,294 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
 
-    // ── Hz button colour tokens ───────────────────────────────────────────────
-    private static final int COLOR_HZ_ACTIVE   = 0xFF2563EB;
+    // -- Colour tokens ---------------------------------------------------------
+    private static final int COLOR_HZ_ACTIVE = 0xFF2563EB;
     private static final int COLOR_HZ_INACTIVE = 0xFF0A1020;
-    private static final int TEXT_HZ_ACTIVE    = Color.WHITE;
-    private static final int TEXT_HZ_INACTIVE  = 0xFF4B5563;
-
-    // ── Status dot colours ────────────────────────────────────────────────────
+    private static final int TEXT_HZ_ACTIVE = Color.WHITE;
+    private static final int TEXT_HZ_INACTIVE = 0xFF4B5563;
     private static final int DOT_COLOR_ACTIVE = 0xFF22C55E;
-    private static final int DOT_COLOR_IDLE   = 0xFF3F3F46;
-
-    // ── Em-dash placeholder used when a field has no data ─────────────────────
+    private static final int DOT_COLOR_IDLE = 0xFF3F3F46;
     private static final String EM_DASH = "\u2014";
-
     private static final int REQUEST_LOCATION_PERMISSION = 1;
+    private static final int REQUEST_BT_PERMISSION        = 2;
 
-    // ── Views ─────────────────────────────────────────────────────────────────
-    private TextView tvConnection, tvSignal, tvSerial, tvSerialStats,
-                     tvHzNote, tvLastFix, tvSatsInView, tvSatsUsed,
-                     tvHeading, tvHeadingDir,
-                     tvLatitude, tvLatDir,
-                     tvLongitude, tvLonDir,
-                     tvAltitude,
-                     tvSpeed, tvCourse, tvHdop, tvFixType;
+    // -- Bluetooth device selection
+    private String selectedBtAddress = "";
+    private String selectedBtName    = "";
 
-    private android.view.View statusDot;
-    private CompassView       compassView;
-    private SignalBarsView    signalBarsView;
+    // -- Views -----------------------------------------------------------------
+    private TextView tvConnection, tvHdrSub, tvLocation, tvSignal, tvSerial, tvSerialStats,
+            tvLastFix, tvSatsInView, tvSatsUsed,
+            tvHeading, tvHeadingDir,
+            tvLatitude, tvLatDir, tvLongitude, tvLonDir, tvAltitude,
+            tvSpeed, tvCourse, tvHdop, tvFixType;
+    private View statusDot;
+    private CompassView compassView;
+    private SignalBarsView signalBarsView;
+    private MiniMapView miniMapView;
+    private Button btnStart, btnStop;
 
-    private Button btnStart, btnStop, btn1Hz, btn5Hz;
+    // -- Map popup state -------------------------------------------------------
+    private Dialog mapPopupDialog;
+    private MiniMapView popupMapView;
 
-    private int     selectedHz            = 1;
-    private boolean isReceiverRegistered  = false;
+    // -- Settings dialog state -------------------------------------------------
+    private Dialog settingsDialog;
+    private String connType = "usb"; // "usb" | "bt"
+    private int selectedHz = 1;
+    private boolean isReceiverRegistered = false;
+    private boolean isSerialExpanded = false;
 
-    // ── Broadcast receiver ────────────────────────────────────────────────────
+    // -- Persistence -----------------------------------------------------------
+    private static final String PREFS_NAME = "GPSLinkPrefs";
+    private static final String KEY_CONN_TYPE = "connType";
+    private static final String KEY_SELECTED_HZ = "selectedHz";
+    private static final String KEY_BT_ADDR = "selectedBtAddr";
+    private static final String KEY_BT_NAME = "selectedBtName";
+    private static final String KEY_SERIAL_EXPANDED = "serialExpanded";
+    private static final String KEY_LAST_LAT = "lastLat";
+    private static final String KEY_LAST_LON = "lastLon";
+
+    private void saveSettings() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .putString(KEY_CONN_TYPE, connType)
+                .putInt(KEY_SELECTED_HZ, selectedHz)
+                .putString(KEY_BT_ADDR, selectedBtAddress)
+                .putString(KEY_BT_NAME, selectedBtName)
+                .putBoolean(KEY_SERIAL_EXPANDED, isSerialExpanded)
+                .putFloat(KEY_LAST_LAT, lastMapLat)
+                .putFloat(KEY_LAST_LON, lastMapLon)
+                .apply();
+    }
+
+    private void loadSettings() {
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        connType = prefs.getString(KEY_CONN_TYPE, "usb");
+        selectedHz = prefs.getInt(KEY_SELECTED_HZ, 1);
+        selectedBtAddress = prefs.getString(KEY_BT_ADDR, "");
+        selectedBtName = prefs.getString(KEY_BT_NAME, "");
+        isSerialExpanded = prefs.getBoolean(KEY_SERIAL_EXPANDED, false);
+        lastMapLat = prefs.getFloat(KEY_LAST_LAT, 0f);
+        lastMapLon = prefs.getFloat(KEY_LAST_LON, 0f);
+    }
+
+    // -- Broadcast receiver ----------------------------------------------------
     private final BroadcastReceiver statusReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            // FIX: guard against null intent (defensive; framework shouldn't
-            //      send null, but belt-and-braces is cheap here).
-            if (intent == null) return;
-
-            // Already on the main thread via LocalBroadcastManager pattern, but
-            // runOnUiThread() is a no-op when already on the UI thread, so this
-            // is safe either way.
+            if (intent == null)
+                return;
             runOnUiThread(() -> {
-                String conn      = intent.getStringExtra("conn");
-                String signal    = intent.getStringExtra("signal");
-                String pos       = intent.getStringExtra("position");
-                String mov       = intent.getStringExtra("movement");
-                String serial    = intent.getStringExtra("serial");
-                String satsView  = intent.getStringExtra("satsInView");
-                String satsUsed  = intent.getStringExtra("satsUsed");
-                String heading   = intent.getStringExtra("heading");
+                String conn = intent.getStringExtra("conn");
+                String signal = intent.getStringExtra("signal");
+                String pos = intent.getStringExtra("position");
+                String mov = intent.getStringExtra("movement");
+                String serial = intent.getStringExtra("serial");
+                String satsView = intent.getStringExtra("satsInView");
+                String satsUsed = intent.getStringExtra("satsUsed");
+                String heading = intent.getStringExtra("heading");
                 String constJson = intent.getStringExtra("constellationJson");
-                long   bytes     = intent.getLongExtra("bytes", -1);
-                int    sents     = intent.getIntExtra("sents", -1);
-                long   fixTime   = intent.getLongExtra("fixtime", 0);
+                long bytes = intent.getLongExtra("bytes", -1);
+                int sents = intent.getIntExtra("sents", -1);
+                long fixTime = intent.getLongExtra("fixtime", 0);
 
-                if (conn     != null) updateConnection(conn);
-                if (signal   != null) tvSignal.setText(signal);
-                if (pos      != null) updatePosition(pos);
-                if (mov      != null) updateMovement(mov);
-                if (serial   != null) tvSerial.setText(serial);
-                if (satsView != null) tvSatsInView.setText(satsView);
-                if (satsUsed != null) tvSatsUsed.setText(satsUsed);
-                if (heading  != null) updateHeading(heading);
-                if (constJson != null && !constJson.isEmpty()) updateSignalBars(constJson);
+                if (conn != null)
+                    updateConnection(conn);
+                if (signal != null)
+                    tvSignal.setText(signal);
+                if (pos != null)
+                    updatePosition(pos);
+                if (mov != null)
+                    updateMovement(mov);
+                if (serial != null)
+                    tvSerial.setText(serial);
+                if (satsView != null)
+                    tvSatsInView.setText(satsView);
+                if (satsUsed != null)
+                    tvSatsUsed.setText(satsUsed);
+                if (heading != null)
+                    updateHeading(heading);
+                if (constJson != null && !constJson.isEmpty())
+                    updateSignalBars(constJson);
                 if (bytes >= 0 && sents >= 0)
-                    tvSerialStats.setText(sents + " sentences · " + fmtBytes(bytes));
+                    tvSerialStats.setText(sents + " sentences \u00B7 " + fmtBytes(bytes));
                 if (fixTime > 0)
                     tvLastFix.setText("Last fix: " + fmtTime(fixTime));
             });
         }
     };
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // -- Lifecycle -------------------------------------------------------------
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Bind views
-        tvConnection   = findViewById(R.id.tvConnection);
-        tvSignal       = findViewById(R.id.tvSignal);
-        tvSerial       = findViewById(R.id.tvSerial);
-        tvSerialStats  = findViewById(R.id.tvSerialStats);
-        tvHzNote       = findViewById(R.id.tvHzNote);
-        tvLastFix      = findViewById(R.id.tvLastFix);
-        tvSatsInView   = findViewById(R.id.tvSatsInView);
-        tvSatsUsed     = findViewById(R.id.tvSatsUsed);
-        tvHeading      = findViewById(R.id.tvHeading);
-        tvHeadingDir   = findViewById(R.id.tvHeadingDir);
-        tvLatitude     = findViewById(R.id.tvLatitude);
-        tvLatDir       = findViewById(R.id.tvLatDir);
-        tvLongitude    = findViewById(R.id.tvLongitude);
-        tvLonDir       = findViewById(R.id.tvLonDir);
-        tvAltitude     = findViewById(R.id.tvAltitude);
-        tvSpeed        = findViewById(R.id.tvSpeed);
-        tvCourse       = findViewById(R.id.tvCourse);
-        tvHdop         = findViewById(R.id.tvHdop);
-        tvFixType      = findViewById(R.id.tvFixType);
-        statusDot      = findViewById(R.id.statusDot);
-        compassView    = findViewById(R.id.compassView);
+        loadSettings();
+
+        // Bind header views
+        tvHdrSub = findViewById(R.id.tvHdrSub);
+        tvLocation = findViewById(R.id.tvLocation);
+        statusDot = findViewById(R.id.statusDot);
+        tvConnection = findViewById(R.id.tvConnection);
+        tvLastFix = findViewById(R.id.tvLastFix);
+
+        // Bind data views
+        tvSignal = findViewById(R.id.tvSignal);
+        tvSerial = findViewById(R.id.tvSerial);
+        tvSerialStats = findViewById(R.id.tvSerialStats);
+        tvSatsInView = findViewById(R.id.tvSatsInView);
+        tvSatsUsed = findViewById(R.id.tvSatsUsed);
+        tvHeading = findViewById(R.id.tvHeading);
+        tvHeadingDir = findViewById(R.id.tvHeadingDir);
+        tvLatitude = findViewById(R.id.tvLatitude);
+        tvLatDir = findViewById(R.id.tvLatDir);
+        tvLongitude = findViewById(R.id.tvLongitude);
+        tvLonDir = findViewById(R.id.tvLonDir);
+        tvAltitude = findViewById(R.id.tvAltitude);
+        tvSpeed = findViewById(R.id.tvSpeed);
+        tvCourse = findViewById(R.id.tvCourse);
+        tvHdop = findViewById(R.id.tvHdop);
+        tvFixType = findViewById(R.id.tvFixType);
+        compassView = findViewById(R.id.compassView);
         signalBarsView = findViewById(R.id.signalBarsView);
+        miniMapView = findViewById(R.id.miniMapView);
 
-        btnStart = findViewById(R.id.btnStart);
-        btnStop  = findViewById(R.id.btnStop);
-        btn1Hz   = findViewById(R.id.btn1Hz);
-        btn5Hz   = findViewById(R.id.btn5Hz);
+        btnStart = findViewById(R.id.btnAction); // Using single action button
+        
+        // Serial log toggle
+        View headerSerial = findViewById(R.id.headerSerial);
+        ImageView ivSerialChevron = findViewById(R.id.ivSerialChevron);
+        headerSerial.setOnClickListener(v -> {
+            isSerialExpanded = !isSerialExpanded;
+            tvSerial.setVisibility(isSerialExpanded ? View.VISIBLE : View.GONE);
+            ivSerialChevron.setRotation(isSerialExpanded ? 180 : 0);
+            saveSettings();
+        });
+        tvSerial.setVisibility(isSerialExpanded ? View.VISIBLE : View.GONE);
+        ivSerialChevron.setRotation(isSerialExpanded ? 180 : 0);
 
-        // Hz selector
-        selectedHz = UsbSerialService.currentHz;
-        applyHzUi(selectedHz);
-        btn1Hz.setOnClickListener(v -> setHz(1));
-        btn5Hz.setOnClickListener(v -> setHz(5));
+        // Settings button -> open dialog
+        findViewById(R.id.btnSettings).setOnClickListener(v -> showSettingsDialog());
 
-        // Start / Stop
+        // Mini map click -> open popup
+        miniMapView.setInteractivity(true);
+        miniMapView.setOnClickListener(v -> showMapPopup());
+
+        // Start / Stop logic
         btnStart.setOnClickListener(v -> {
-            if (!checkPermissions()) return;
+            boolean isRunning = UsbSerialService.isRunning || BluetoothGpsService.isRunning;
+            if (isRunning) {
+                stopGpsService();
+            } else {
+                startGpsService();
+            }
+            // Immediate UI feedback
+            updateActionButtonUi();
+        });
+
+        // Mock Location warning
+        checkMockLocationStatus();
+        findViewById(R.id.btnFixMock).setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+            } catch (Exception e) {
+                startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+            }
+        });
+
+        // Restore if service is already running
+        selectedHz = UsbSerialService.currentHz;
+        if (UsbSerialService.isRunning || BluetoothGpsService.isRunning) {
+            restoreState();
+        } else {
+            resetCards();
+        }
+        
+        updateActionButtonUi();
+        updateHdrSub();
+
+        if (lastMapLat != 0 && lastMapLon != 0) {
+            miniMapView.setPosition(lastMapLat, lastMapLon);
+        }
+    }
+
+    private void checkMockLocationStatus() {
+        View card = findViewById(R.id.cardMockWarning);
+        if (card == null) return;
+        boolean isMock = false;
+        try {
+            android.location.LocationManager lm = (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            // On modern Android, we can't easily check if WE are the mock provider without trying to use it.
+            // But we can check if developer options are enabled or if we can add a test provider.
+            lm.addTestProvider("test_check", false, false, false, false, true, true, true, 0, 5);
+            lm.removeTestProvider("test_check");
+            isMock = true;
+        } catch (SecurityException e) {
+            isMock = false;
+        } catch (Exception e) {
+            isMock = true; // Assume okay if other error
+        }
+        card.setVisibility(isMock ? View.GONE : View.VISIBLE);
+    }
+
+    private void startGpsService() {
+        if (!checkPermissions()) return;
+        if ("bt".equals(connType)) {
+            if (selectedBtAddress.isEmpty()) {
+                showSettingsDialog();
+                return;
+            }
+            Intent svc = new Intent(this, BluetoothGpsService.class);
+            svc.putExtra(BluetoothGpsService.EXTRA_BT_ADDRESS, selectedBtAddress);
+            svc.putExtra(BluetoothGpsService.EXTRA_BT_NAME, selectedBtName);
+            ContextCompat.startForegroundService(this, svc);
+        } else {
             Intent svc = new Intent(this, UsbSerialService.class);
             svc.putExtra(UsbSerialService.EXTRA_HZ, selectedHz);
             ContextCompat.startForegroundService(this, svc);
-        });
-        btnStop.setOnClickListener(v -> {
-            stopService(new Intent(this, UsbSerialService.class));
-            clearServiceState();
-            resetCards();
-        });
+        }
+        updateActionButtonUi();
+    }
 
-        if (UsbSerialService.isRunning) restoreState();
+    private void stopGpsService() {
+        stopService(new Intent(this, UsbSerialService.class));
+        stopService(new Intent(this, BluetoothGpsService.class));
+        clearServiceState();
+        resetCards();
+        updateActionButtonUi();
+    }
+
+    private void updateActionButtonUi() {
+        boolean running = UsbSerialService.isRunning || BluetoothGpsService.isRunning;
+        btnStart.setText(running ? R.string.btn_stop : R.string.btn_start);
+        // Use setTint for the button background to keep the shape/ripple
+        if (btnStart.getBackground() != null) {
+            btnStart.getBackground().setTint(ContextCompat.getColor(this, 
+                running ? R.color.accent_red : R.color.primary_variant));
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        if (miniMapView != null)
+            miniMapView.onResume();
+        if (popupMapView != null)
+            popupMapView.onResume();
         IntentFilter f = new IntentFilter(UsbSerialService.ACTION_STATUS);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             registerReceiver(statusReceiver, f, Context.RECEIVER_NOT_EXPORTED);
         else
             registerReceiver(statusReceiver, f);
         isReceiverRegistered = true;
-
-        if (UsbSerialService.isRunning) {
+        if (UsbSerialService.isRunning || BluetoothGpsService.isRunning) {
             selectedHz = UsbSerialService.currentHz;
-            applyHzUi(selectedHz);
             restoreState();
         }
     }
@@ -177,334 +325,640 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (miniMapView != null)
+            miniMapView.onPause();
+        if (popupMapView != null)
+            popupMapView.onPause();
         if (isReceiverRegistered) {
-            try { unregisterReceiver(statusReceiver); }
-            catch (IllegalArgumentException ignored) {}
+            try {
+                unregisterReceiver(statusReceiver);
+            } catch (IllegalArgumentException ignored) {
+            }
             isReceiverRegistered = false;
         }
     }
 
-    // ── UI update helpers ─────────────────────────────────────────────────────
+    // -- Settings Dialog -------------------------------------------------------
 
-    /** Update the connection label and status-dot colour. */
-    private void updateConnection(String conn) {
-        tvConnection.setText(conn);
-        // FIX: use Locale.ROOT for case-insensitive comparison to avoid
-        //      locale-specific lower-casing bugs (e.g. Turkish 'İ').
-        String lc = conn.toLowerCase(Locale.ROOT);
-        boolean active = !lc.equals("idle") && !lc.contains("disconnected");
-        statusDot.setBackgroundColor(active ? DOT_COLOR_ACTIVE : DOT_COLOR_IDLE);
+    private void showSettingsDialog() {
+        settingsDialog = new Dialog(this);
+        settingsDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        settingsDialog.setContentView(R.layout.dialog_settings);
+
+        // Make dialog background transparent so card_bg corners show
+        if (settingsDialog.getWindow() != null) {
+            settingsDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            settingsDialog.getWindow().setLayout(
+                    (int) (getResources().getDisplayMetrics().widthPixels * 0.88),
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+
+        // Bind dialog views
+        LinearLayout optUsb        = settingsDialog.findViewById(R.id.optUsb);
+        LinearLayout optBt         = settingsDialog.findViewById(R.id.optBt);
+        LinearLayout hzSection     = settingsDialog.findViewById(R.id.hzSection);
+        LinearLayout btDevSection  = settingsDialog.findViewById(R.id.btDeviceSection);
+        LinearLayout btDevList     = settingsDialog.findViewById(R.id.btDeviceList);
+        TextView     tvBtEmpty     = settingsDialog.findViewById(R.id.tvBtEmpty);
+        LinearLayout btSelectedRow = settingsDialog.findViewById(R.id.btSelectedRow);
+        TextView     tvBtSelected  = settingsDialog.findViewById(R.id.tvBtSelected);
+        TextView     tvBtOpen      = settingsDialog.findViewById(R.id.tvBtOpenSettings);
+        TextView     badgeUsb      = settingsDialog.findViewById(R.id.badgeUsb);
+        TextView     badgeBt       = settingsDialog.findViewById(R.id.badgeBt);
+        Button       dlgBtn1Hz     = settingsDialog.findViewById(R.id.btn1Hz);
+        Button       dlgBtn5Hz     = settingsDialog.findViewById(R.id.btn5Hz);
+        TextView     dlgHzNote     = settingsDialog.findViewById(R.id.tvHzNote);
+        Button       btnClose      = settingsDialog.findViewById(R.id.btnCloseSettings);
+
+        // Populate paired BT devices
+        populateBtDeviceList(btDevList, tvBtEmpty, btSelectedRow, tvBtSelected);
+
+        // Restore selected device label
+        if (!selectedBtName.isEmpty()) {
+            btSelectedRow.setVisibility(View.VISIBLE);
+            tvBtSelected.setText(selectedBtName);
+        }
+
+        tvBtOpen.setOnClickListener(v -> {
+            startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS));
+        });
+
+        // Apply current state
+        applyConnUi(optUsb, optBt, badgeUsb, badgeBt, hzSection, btDevSection, connType);
+        applyHzUiDialog(dlgBtn1Hz, dlgBtn5Hz, dlgHzNote, selectedHz);
+        optUsb.setOnClickListener(v -> {
+            if (!"usb".equals(connType)) stopGpsService();
+            connType = "usb";
+            applyConnUi(optUsb, optBt, badgeUsb, badgeBt, hzSection, btDevSection, connType);
+            updateHdrSub();
+            saveSettings();
+        });
+
+        optBt.setOnClickListener(v -> {
+            if (!"bt".equals(connType)) stopGpsService();
+            connType = "bt";
+            applyConnUi(optUsb, optBt, badgeUsb, badgeBt, hzSection, btDevSection, connType);
+            updateHdrSub();
+            saveSettings();
+        });
+
+        dlgBtn1Hz.setOnClickListener(v -> {
+            selectedHz = 1;
+            applyHzUiDialog(dlgBtn1Hz, dlgBtn5Hz, dlgHzNote, selectedHz);
+            dispatchHz(selectedHz);
+            saveSettings();
+        });
+
+        dlgBtn5Hz.setOnClickListener(v -> {
+            selectedHz = 5;
+            applyHzUiDialog(dlgBtn1Hz, dlgBtn5Hz, dlgHzNote, selectedHz);
+            dispatchHz(selectedHz);
+            saveSettings();
+        });
+
+        btnClose.setOnClickListener(v -> settingsDialog.dismiss());
+
+        settingsDialog.show();
     }
 
-    /**
-     * Parse the position string from UsbSerialService and distribute
-     * Latitude, Longitude and Altitude into their own TextViews.
-     *
-     * The service currently sends a multi-line string such as:
-     *   "13.7563° N\n100.5018° E\nAlt: 14.2 m"
-     *
-     * This method is tolerant of format variations and also accepts
-     * the legacy single-line format so nothing breaks if UsbSerialService
-     * is not yet updated.
-     */
-    private void updatePosition(String pos) {
-        // FIX: also check for the em-dash placeholder explicitly
-        if (pos == null || pos.isEmpty() || pos.equals(EM_DASH) || pos.equals("—")) {
-            setPositionEmpty();
+    private void applyConnUi(LinearLayout optUsb, LinearLayout optBt,
+            TextView badgeUsb, TextView badgeBt,
+            LinearLayout hzSection, LinearLayout btDevSection, String type) {
+        boolean isUsb = "usb".equals(type);
+        optUsb.setBackgroundResource(isUsb ? R.drawable.conn_option_selected : R.drawable.conn_option_bg);
+        optBt.setBackgroundResource(isUsb ? R.drawable.conn_option_bg : R.drawable.conn_option_selected);
+        badgeUsb.setText(isUsb ? "ACTIVE" : "");
+        badgeUsb.setBackgroundResource(isUsb ? R.drawable.badge_active_bg : 0);
+        badgeBt.setText(isUsb ? "" : "ACTIVE");
+        badgeBt.setBackgroundResource(isUsb ? 0 : R.drawable.badge_active_bg);
+        hzSection.setVisibility(isUsb ? View.VISIBLE : View.GONE);
+        btDevSection.setVisibility(isUsb ? View.GONE : View.VISIBLE);
+    }
+
+    private void populateBtDeviceList(LinearLayout list, TextView tvEmpty,
+            LinearLayout selectedRow, TextView tvSelected) {
+        list.removeAllViews();
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) {
+            tvEmpty.setText("Bluetooth not available on this device.");
+            tvEmpty.setVisibility(View.VISIBLE);
             return;
         }
-
-        String[] lines = pos.split("\n");
-
-        // ── Latitude ─────────────────────────────────────────────────────────
-        if (lines.length >= 1) {
-            String line   = lines[0].trim();
-            String[] parts = line.replace("Lat:", "").replace("°", "").trim().split("\\s+");
-            tvLatitude.setText(parts.length >= 1 ? parts[0] : EM_DASH);
-            tvLatDir  .setText(parts.length >= 2 ? parts[1] : "");
-        }
-
-        // ── Longitude ────────────────────────────────────────────────────────
-        if (lines.length >= 2) {
-            String line   = lines[1].trim();
-            String[] parts = line.replace("Lon:", "").replace("°", "").trim().split("\\s+");
-            tvLongitude.setText(parts.length >= 1 ? parts[0] : EM_DASH);
-            tvLonDir   .setText(parts.length >= 2 ? parts[1] : "");
-        }
-
-        // ── Altitude ─────────────────────────────────────────────────────────
-        if (lines.length >= 3) {
-            // FIX: use Locale.ROOT in replaceAll / toLowerCase to avoid
-            //      locale-specific regex issues.
-            String line = lines[2].trim()
-                    .replaceAll("(?i)alt:", "")
-                    .replaceAll("(?i)\\bm\\b", "")
-                    .replaceAll("(?i)\\bmsl\\b", "")
-                    .trim();
-            String[] parts = line.split("\\s+");
-            tvAltitude.setText((parts.length >= 1 && !parts[0].isEmpty()) ? parts[0] : EM_DASH);
-        }
-    }
-
-    private void setPositionEmpty() {
-        tvLatitude .setText(EM_DASH);  tvLatDir .setText("");
-        tvLongitude.setText(EM_DASH);  tvLonDir .setText("");
-        tvAltitude .setText(EM_DASH);
-    }
-
-    /**
-     * Parse the movement string and fill Speed, Course, HDOP, Fix-type cells.
-     *
-     * Service sends something like:
-     *   "Speed: 2.4 km/h\nCourse: 127.3°\nHDOP: 0.92\nFix: 3D"
-     */
-    private void updateMovement(String mov) {
-        if (mov == null || mov.isEmpty() || mov.equals(EM_DASH) || mov.equals("—")) {
-            tvSpeed  .setText(EM_DASH);
-            tvCourse .setText(EM_DASH);
-            tvHdop   .setText(EM_DASH);
-            tvFixType.setText(EM_DASH);
-            tvFixType.setTextColor(0xFF4B5563);
-            return;
-        }
-        String[] lines = mov.split("\n");
-        for (String line : lines) {
-            // FIX: use Locale.ROOT for toLowerCase
-            String lc = line.toLowerCase(Locale.ROOT);
-            if (lc.contains("speed"))  tvSpeed .setText(extractValue(line));
-            if (lc.contains("course")) tvCourse.setText(extractValue(line));
-            if (lc.contains("hdop"))   tvHdop  .setText(extractValue(line));
-            if (lc.contains("fix")) {
-                String fixVal = extractValue(line);
-                tvFixType.setText(fixVal);
-                String fv = fixVal.toLowerCase(Locale.ROOT);
-                int fixColor;
-                if (fv.contains("no fix") || fv.contains("stale")) {
-                    fixColor = 0xFFEF4444; // red
-                } else if (fv.contains("dgps") || fv.contains("rtk float")
-                        || fv.contains("dead reckoning")) {
-                    fixColor = 0xFFF59E0B; // amber
-                } else {
-                    fixColor = 0xFF22C55E; // green
-                }
-                tvFixType.setTextColor(fixColor);
-            }
-        }
-    }
-
-    /** Extract the value part after the colon in "Label: value" strings. */
-    private String extractValue(String line) {
-        int colon = line.indexOf(':');
-        return colon >= 0 ? line.substring(colon + 1).trim() : line.trim();
-    }
-
-    /**
-     * Parse the heading string, update the numeric/cardinal labels and
-     * smoothly rotate the CompassView needle.
-     */
-    private void updateHeading(String headingStr) {
-        // FIX: handle null explicitly before calling replaceAll to avoid NPE
-        if (headingStr == null || headingStr.isEmpty()) {
-            tvHeading   .setText(EM_DASH);
-            tvHeadingDir.setText(EM_DASH);
-            return;
-        }
-        try {
-            // Strip everything that isn't a digit or decimal point.
-            // FIX: also strip a leading '-' that could sneak in for negative
-            //      headings; a heading is always [0, 360).
-            String numStr = headingStr.replaceAll("[^\\d.]", "");
-            if (numStr.isEmpty()) {
-                tvHeading   .setText(EM_DASH);
-                tvHeadingDir.setText(EM_DASH);
+        // On API 31+ we need BLUETOOTH_CONNECT permission to call getBondedDevices()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                tvEmpty.setText("Bluetooth permission required.\nGrant it in App Settings.");
+                tvEmpty.setVisibility(View.VISIBLE);
                 return;
             }
-            float heading = Float.parseFloat(numStr);
-            heading = ((heading % 360) + 360) % 360;
+        }
+        Set<BluetoothDevice> bonded = adapter.getBondedDevices();
+        if (bonded == null || bonded.isEmpty()) {
+            tvEmpty.setVisibility(View.VISIBLE);
+            return;
+        }
+        tvEmpty.setVisibility(View.GONE);
+        for (BluetoothDevice dev : bonded) {
+            String devName = dev.getName();
+            String devAddr = dev.getAddress();
+            if (devName == null) devName = devAddr;
 
-            // FIX: use Locale.ROOT in String.format to avoid locale-specific
-            //      decimal separators (e.g. "127,0°" instead of "127.0°").
-            tvHeading   .setText(String.format(Locale.ROOT, "%.0f°", heading));
-            tvHeadingDir.setText(getCardinalDirection(heading));
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(dp(10), dp(10), dp(10), dp(10));
+            row.setBackground(ContextCompat.getDrawable(this, R.drawable.coord_cell_bg));
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            rowLp.setMargins(0, 0, 0, dp(4));
+            row.setLayoutParams(rowLp);
 
-            compassView.setHeading(heading);
+            LinearLayout textCol = new LinearLayout(this);
+            textCol.setOrientation(LinearLayout.VERTICAL);
+            textCol.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        } catch (NumberFormatException e) {
-            tvHeading   .setText(EM_DASH);
-            tvHeadingDir.setText(EM_DASH);
+            TextView tvName = new TextView(this);
+            tvName.setText(devName);
+            tvName.setTextSize(11f);
+            tvName.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            tvName.setTextColor(0xFFE4EAF8);
+            textCol.addView(tvName);
+
+            TextView tvAddr = new TextView(this);
+            tvAddr.setText(devAddr);
+            tvAddr.setTextSize(9f);
+            tvAddr.setTypeface(android.graphics.Typeface.MONOSPACE);
+            tvAddr.setTextColor(0xFF4A6080);
+            textCol.addView(tvAddr);
+            row.addView(textCol);
+
+            // Highlight if already selected
+            boolean isSel = devAddr.equals(selectedBtAddress);
+            TextView tvMark = new TextView(this);
+            tvMark.setText(isSel ? "✓" : "");
+            tvMark.setTextSize(14f);
+            tvMark.setTextColor(0xFF10B981);
+            row.addView(tvMark);
+
+            final String fName = devName;
+            final String fAddr = devAddr;
+            row.setOnClickListener(v -> {
+                selectedBtAddress = fAddr;
+                selectedBtName    = fName;
+                selectedRow.setVisibility(View.VISIBLE);
+                tvSelected.setText(fName);
+                saveSettings();
+                // Refresh marks
+                populateBtDeviceList(list, tvEmpty, selectedRow, tvSelected);
+            });
+            list.addView(row);
         }
     }
 
-    private String getCardinalDirection(float heading) {
-        // FIX: cast result of Math.round to int explicitly; the original used
-        //      (int) Math.round() which is correct, but the modulo must be on
-        //      the long result of Math.round before casting to avoid an
-        //      off-by-one when heading == 360.0f after normalisation.
-        String[] dirs = {"N","NNE","NE","ENE","E","ESE","SE","SSE",
-                         "S","SSW","SW","WSW","W","WNW","NW","NNW"};
-        int idx = (int) (Math.round(heading / 22.5) % 16);
-        return dirs[idx];
+    private int dp(int px) {
+        return Math.round(px * getResources().getDisplayMetrics().density);
     }
 
-    /**
-     * Parse constellation JSON and update SignalBarsView.
-     * JSON format: [{"label":"GPS","avgSnr":38,"count":6}, ...]
-     */
-    private void updateSignalBars(String json) {
-        if (signalBarsView == null || json == null || json.isEmpty()) return;
-        try {
-            JSONArray arr = new JSONArray(json);
-            List<SignalBarsView.ConstellationSignal> signals = new ArrayList<>(arr.length());
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject obj = arr.getJSONObject(i);
-                // FIX: use optString/optInt with sensible defaults so a single
-                //      malformed entry doesn't abort the whole update.
-                signals.add(new SignalBarsView.ConstellationSignal(
-                    obj.optString("label", "???"),
-                    obj.optInt("avgSnr", 0),
-                    obj.optInt("count", 0)
-                ));
+    private void applyHzUiDialog(Button btn1, Button btn5, TextView note, int hz) {
+        boolean is5 = (hz == 5);
+        btn1.setBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(is5 ? COLOR_HZ_INACTIVE : COLOR_HZ_ACTIVE));
+        btn5.setBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(is5 ? COLOR_HZ_ACTIVE : COLOR_HZ_INACTIVE));
+        btn1.setTextColor(is5 ? TEXT_HZ_INACTIVE : TEXT_HZ_ACTIVE);
+        btn5.setTextColor(is5 ? TEXT_HZ_ACTIVE : TEXT_HZ_INACTIVE);
+        note.setText(is5 ? "5 Hz \u00B7 5 updates / second (UBX-CFG-RATE)" : "1 Hz \u00B7 1 update per second");
+    }
+
+    private void updateHdrSub() {
+        tvHdrSub.setText("usb".equals(connType) ? R.string.conn_usb : R.string.conn_bt);
+        // If not running, ensure the subtitle matches the idle state (e.g. show remembered BT dev)
+        if (!UsbSerialService.isRunning && !BluetoothGpsService.isRunning) {
+            resetCards();
+        }
+    }
+
+    private void showMapPopup() {
+        mapPopupDialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        mapPopupDialog.setContentView(R.layout.dialog_map);
+
+        if (mapPopupDialog.getWindow() != null) {
+            mapPopupDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+
+        popupMapView = mapPopupDialog.findViewById(R.id.popupMapView);
+        ImageButton btnClose = mapPopupDialog.findViewById(R.id.btnCloseMap);
+        Button btnRecenter = mapPopupDialog.findViewById(R.id.btnRecenter);
+
+        if (popupMapView != null) {
+            popupMapView.setRecenterButton(btnRecenter);
+        }
+
+        // Sync initial state
+        if (miniMapView != null && popupMapView != null) {
+            popupMapView.setTrack(miniMapView.getTrack());
+            if (lastMapLat != 0 && lastMapLon != 0) {
+                popupMapView.setPosition(lastMapLat, lastMapLon);
             }
-            signalBarsView.setSignals(signals);
-        } catch (Exception e) {
-            // Silently ignore malformed JSON — signal bars will keep the last
-            // valid data rather than going blank.
         }
+
+        btnClose.setOnClickListener(v -> mapPopupDialog.dismiss());
+        mapPopupDialog.setOnDismissListener(dialog -> {
+            popupMapView = null;
+            mapPopupDialog = null;
+        });
+
+        mapPopupDialog.show();
+        if (popupMapView != null)
+            popupMapView.onResume();
     }
 
-    // ── Hz UI ─────────────────────────────────────────────────────────────────
-
-    private void setHz(int hz) {
-        selectedHz = hz;
-        applyHzUi(hz);
+    private void dispatchHz(int hz) {
         if (UsbSerialService.isRunning) {
             Intent intent = new Intent(UsbSerialService.ACTION_SET_HZ);
+            intent.setPackage(getPackageName());
             intent.putExtra(UsbSerialService.EXTRA_HZ, hz);
             sendBroadcast(intent);
         }
     }
 
-    private void applyHzUi(int hz) {
-        boolean is5 = (hz == 5);
-        btn1Hz.setBackgroundTintList(
-            android.content.res.ColorStateList.valueOf(is5 ? COLOR_HZ_INACTIVE : COLOR_HZ_ACTIVE));
-        btn5Hz.setBackgroundTintList(
-            android.content.res.ColorStateList.valueOf(is5 ? COLOR_HZ_ACTIVE : COLOR_HZ_INACTIVE));
-        btn1Hz.setTextColor(is5 ? TEXT_HZ_INACTIVE : TEXT_HZ_ACTIVE);
-        btn5Hz.setTextColor(is5 ? TEXT_HZ_ACTIVE   : TEXT_HZ_INACTIVE);
-        tvHzNote.setText(is5
-            ? "5 Hz · 5 updates / second (UBX-CFG-RATE)"
-            : "1 Hz · 1 update per second");
+    // -- UI update helpers -----------------------------------------------------
+
+    private void updateConnection(String conn) {
+        if (conn == null)
+            return;
+        String[] parts = conn.split(" \u00B7 ");
+        if (parts.length >= 2) {
+            tvConnection.setText(parts[0]);
+            tvLocation.setText(parts[1]);
+        } else {
+            tvConnection.setText(conn);
+            tvLocation.setText(EM_DASH);
+        }
+
+        String lc = conn.toLowerCase(Locale.ROOT);
+        boolean error = lc.contains("no ublox") || lc.contains("error") || lc.contains("denied")
+                || lc.contains("unavailable") || lc.contains("failed");
+        boolean active = !lc.equals("idle") && !lc.contains("disconnected") && !lc.contains("not started") && !error;
+
+        int dotColor = active ? 0xFF10B981 : (error ? 0xFFEF4444 : 0xFF3F3F46);
+        int textColor = active ? 0xFF10B981 : (error ? 0xFFEF4444 : 0xFF4A6080);
+
+        if (statusDot.getBackground() != null) {
+            statusDot.getBackground().setTint(dotColor);
+        }
+        tvConnection.setTextColor(textColor);
+        
+        updateActionButtonUi();
+
+        if (active || error) {
+            if (statusDot.getAnimation() == null) {
+                android.view.animation.AlphaAnimation blink = new android.view.animation.AlphaAnimation(1.0f, 0.4f);
+                blink.setDuration(800);
+                blink.setRepeatMode(android.view.animation.Animation.REVERSE);
+                blink.setRepeatCount(android.view.animation.Animation.INFINITE);
+                statusDot.startAnimation(blink);
+            }
+        } else {
+            statusDot.clearAnimation();
+        }
     }
 
-    // ── State restore / reset ─────────────────────────────────────────────────
+    private void updatePosition(String pos) {
+        if (pos == null || pos.isEmpty() || pos.equals(EM_DASH)) {
+            setPositionEmpty();
+            return;
+        }
+        String[] lines = pos.split("\n");
+        Float signedLat = null;
+        Float signedLon = null;
+
+        if (lines.length >= 1) {
+            String line = lines[0].trim();
+            // Match pattern like "12.345678° N" or "Lat: 12.345678° N"
+            String numericPart = line.replaceAll("[^0-9.+-]", "");
+            String dirPart = line.substring(line.length() - 1).toUpperCase(Locale.ROOT);
+            try {
+                if (!numericPart.isEmpty()) {
+                    signedLat = Float.parseFloat(numericPart);
+                    if ("S".equals(dirPart)) signedLat *= -1f;
+                    tvLatitude.setText(String.format(Locale.ROOT, "%.6f", Math.abs(signedLat)));
+                    tvLatDir.setText(dirPart);
+                }
+            } catch (Exception ignored) {}
+        }
+        if (lines.length >= 2) {
+            String line = lines[1].trim();
+            String numericPart = line.replaceAll("[^0-9.+-]", "");
+            String dirPart = line.substring(line.length() - 1).toUpperCase(Locale.ROOT);
+            try {
+                if (!numericPart.isEmpty()) {
+                    signedLon = Float.parseFloat(numericPart);
+                    if ("W".equals(dirPart)) signedLon *= -1f;
+                    tvLongitude.setText(String.format(Locale.ROOT, "%.6f", Math.abs(signedLon)));
+                    tvLonDir.setText(dirPart);
+                }
+            } catch (Exception ignored) {}
+        }
+        if (lines.length >= 3) {
+            String line = lines[2].trim()
+                    .replaceAll("(?i)alt:", "").replaceAll("(?i)\\bm\\b", "")
+                    .replaceAll("(?i)\\bmsl\\b", "").trim();
+            String[] parts = line.split("\\s+");
+            tvAltitude.setText((parts.length >= 1 && !parts[0].isEmpty()) ? parts[0] : EM_DASH);
+        }
+
+        if (miniMapView != null && signedLat != null && signedLon != null) {
+            // Only update map if changed by > ~20cm (0.000002 deg)
+            if (Math.abs(signedLat - lastMapLat) > 0.000002 || Math.abs(signedLon - lastMapLon) > 0.000002) {
+                miniMapView.setPosition(signedLat, signedLon);
+                lastMapLat = signedLat;
+                lastMapLon = signedLon;
+                saveSettings();
+            }
+        }
+        if (popupMapView != null && signedLat != null && signedLon != null) {
+            popupMapView.setPosition(signedLat, signedLon);
+        }
+    }
+
+    private float lastMapLat = 0;
+    private float lastMapLon = 0;
+
+    private void setPositionEmpty() {
+        tvLatitude.setText(EM_DASH);
+        tvLatDir.setText("");
+        tvLongitude.setText(EM_DASH);
+        tvLonDir.setText("");
+        tvAltitude.setText(EM_DASH);
+        if (miniMapView != null)
+            miniMapView.clearTrack();
+        if (popupMapView != null)
+            popupMapView.clearTrack();
+    }
+
+    private void updateMovement(String mov) {
+        if (mov == null || mov.isEmpty() || mov.equals(EM_DASH)) {
+            tvSpeed.setText(EM_DASH);
+            tvCourse.setText(EM_DASH);
+            tvHdop.setText(EM_DASH);
+            tvFixType.setText(EM_DASH);
+            tvFixType.setTextColor(0xFF4B5563);
+            return;
+        }
+        for (String line : mov.split("\n")) {
+            String lc = line.toLowerCase(Locale.ROOT);
+            if (lc.contains("speed"))
+                tvSpeed.setText(extractValue(line));
+            if (lc.contains("course"))
+                tvCourse.setText(extractValue(line));
+            if (lc.contains("hdop"))
+                tvHdop.setText(extractValue(line));
+            if (lc.contains("fix")) {
+                String fixVal = extractValue(line);
+                tvFixType.setText(fixVal);
+                String fv = fixVal.toLowerCase(Locale.ROOT);
+                int fixColor = (fv.contains("no fix") || fv.contains("stale")) ? 0xFFEF4444
+                        : (fv.contains("dgps") || fv.contains("rtk float") || fv.contains("dead reckoning"))
+                                ? 0xFFF59E0B
+                                : 0xFF22C55E;
+                tvFixType.setTextColor(fixColor);
+            }
+        }
+    }
+
+    private String extractValue(String line) {
+        int colon = line.indexOf(':');
+        return colon >= 0 ? line.substring(colon + 1).trim() : line.trim();
+    }
+
+    private Float parseSignedCoordinate(String[] parts) {
+        if (parts.length < 1 || parts[0].isEmpty() || EM_DASH.equals(parts[0]))
+            return null;
+        try {
+            String numeric = parts[0].replaceAll("[^0-9.+-]", "");
+            if (numeric.isEmpty())
+                return null;
+            float value = Float.parseFloat(numeric);
+            if (parts.length >= 2) {
+                String dir = parts[1].toUpperCase(Locale.ROOT);
+                if ("S".equals(dir) || "W".equals(dir))
+                    value *= -1f;
+            }
+            return value;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private void updateHeading(String headingStr) {
+        if (headingStr == null || headingStr.isEmpty()) {
+            tvHeading.setText(EM_DASH);
+            tvHeadingDir.setText(EM_DASH);
+            return;
+        }
+        try {
+            String numStr = headingStr.replaceAll("[^\\d.]", "");
+            if (numStr.isEmpty()) {
+                tvHeading.setText(EM_DASH);
+                tvHeadingDir.setText(EM_DASH);
+                return;
+            }
+            float heading = Float.parseFloat(numStr);
+            heading = ((heading % 360) + 360) % 360;
+            tvHeading.setText(String.format(Locale.ROOT, "%.0f\u00B0", heading));
+            tvHeadingDir.setText(getCardinalDirection(heading));
+            compassView.setHeading(heading);
+        } catch (NumberFormatException e) {
+            tvHeading.setText(EM_DASH);
+            tvHeadingDir.setText(EM_DASH);
+        }
+    }
+
+    private String getCardinalDirection(float heading) {
+        String[] dirs = { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW",
+                "NNW" };
+        int idx = (int) (Math.round(heading / 22.5) % 16);
+        return dirs[idx];
+    }
+
+    private void updateSignalBars(String json) {
+        if (signalBarsView == null || json == null || json.isEmpty())
+            return;
+        try {
+            JSONArray arr = new JSONArray(json);
+            List<SignalBarsView.ConstellationSignal> signals = new ArrayList<>(arr.length());
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject obj = arr.getJSONObject(i);
+                signals.add(new SignalBarsView.ConstellationSignal(
+                        obj.optString("label", "???"),
+                        obj.optInt("avgSnr", 0),
+                        obj.optInt("count", 0)));
+            }
+            signalBarsView.setSignals(signals);
+        } catch (Exception ignored) {
+        }
+    }
+
+    // -- State restore / reset -------------------------------------------------
 
     private void restoreState() {
-        synchronized (UsbSerialService.STATE_LOCK) {
-            updateConnection(UsbSerialService.lastConn);
-            tvSignal    .setText(UsbSerialService.lastSignal);
-            updatePosition(UsbSerialService.lastPos);
-            updateMovement(UsbSerialService.lastMovement);
-            updateHeading(UsbSerialService.lastHeading);
-            updateSignalBars(UsbSerialService.lastConstellationJson);
-            tvSerial    .setText(UsbSerialService.lastSerialLog);
-            tvSatsInView.setText(UsbSerialService.lastSatsInView);
-            tvSatsUsed  .setText(UsbSerialService.lastSatsUsed);
-            long bytes = UsbSerialService.totalBytes;
-            int  sents = UsbSerialService.totalSents;
+        boolean btRunning = BluetoothGpsService.isRunning;
+        Object lock = btRunning ? BluetoothGpsService.STATE_LOCK : UsbSerialService.STATE_LOCK;
+        synchronized (lock) {
+            String conn  = btRunning ? BluetoothGpsService.lastConn  : UsbSerialService.lastConn;
+            String sig   = btRunning ? BluetoothGpsService.lastSignal : UsbSerialService.lastSignal;
+            String pos   = btRunning ? BluetoothGpsService.lastPos   : UsbSerialService.lastPos;
+            String mov   = btRunning ? BluetoothGpsService.lastMovement : UsbSerialService.lastMovement;
+            String hdg   = btRunning ? BluetoothGpsService.lastHeading  : UsbSerialService.lastHeading;
+            String cJson = btRunning ? BluetoothGpsService.lastConstellationJson : UsbSerialService.lastConstellationJson;
+            String slog  = btRunning ? BluetoothGpsService.lastSerialLog : UsbSerialService.lastSerialLog;
+            String sView = btRunning ? BluetoothGpsService.lastSatsInView : UsbSerialService.lastSatsInView;
+            String sUsed = btRunning ? BluetoothGpsService.lastSatsUsed   : UsbSerialService.lastSatsUsed;
+            long bytes   = btRunning ? BluetoothGpsService.totalBytes : UsbSerialService.totalBytes;
+            int  sents   = btRunning ? BluetoothGpsService.totalSents : UsbSerialService.totalSents;
+            long ft      = btRunning ? BluetoothGpsService.lastFixTime : UsbSerialService.lastFixTime;
+            updateConnection(conn);
+            tvSignal.setText(sig);
+            updatePosition(pos);
+            updateMovement(mov);
+            updateHeading(hdg);
+            updateSignalBars(cJson);
+            tvSerial.setText(slog);
+            tvSatsInView.setText(sView);
+            tvSatsUsed.setText(sUsed);
             if (bytes >= 0 && sents >= 0)
-                tvSerialStats.setText(sents + " sentences · " + fmtBytes(bytes));
-            long ft = UsbSerialService.lastFixTime;
+                tvSerialStats.setText(sents + " sentences \u00B7 " + fmtBytes(bytes));
             if (ft > 0) tvLastFix.setText("Last fix: " + fmtTime(ft));
         }
     }
 
     private void resetCards() {
-        tvConnection .setText("Idle");
-        statusDot    .setBackgroundColor(DOT_COLOR_IDLE);
-        tvSignal     .setText(EM_DASH);
-        tvLatitude   .setText(EM_DASH);  tvLatDir.setText("");
-        tvLongitude  .setText(EM_DASH);  tvLonDir.setText("");
-        tvAltitude   .setText(EM_DASH);
-        tvSpeed      .setText(EM_DASH);
-        tvCourse     .setText(EM_DASH);
-        tvHdop       .setText(EM_DASH);
-        tvFixType    .setText(EM_DASH);
-        tvSerial     .setText(EM_DASH);
-        tvSatsInView .setText(EM_DASH);
-        tvSatsUsed   .setText(EM_DASH);
-        tvHeading    .setText(EM_DASH);
-        tvHeadingDir .setText(EM_DASH);
+        tvConnection.setText("Idle");
+        if ("bt".equals(connType) && !selectedBtName.isEmpty()) {
+            tvLocation.setText(selectedBtName);
+        } else {
+            tvLocation.setText(EM_DASH);
+        }
+        statusDot.clearAnimation();
+        if (statusDot.getBackground() != null) {
+            statusDot.getBackground().setTint(DOT_COLOR_IDLE);
+        }
+        tvConnection.setTextColor(0xFF4A6080);
+        tvSignal.setText(EM_DASH);
+        tvLatitude.setText(EM_DASH);
+        tvLatDir.setText("");
+        tvLongitude.setText(EM_DASH);
+        tvLonDir.setText("");
+        tvAltitude.setText(EM_DASH);
+        tvSpeed.setText(EM_DASH);
+        tvCourse.setText(EM_DASH);
+        tvHdop.setText(EM_DASH);
+        tvFixType.setText(EM_DASH);
+        tvSerial.setText(EM_DASH);
+        tvSatsInView.setText(EM_DASH);
+        tvSatsUsed.setText(EM_DASH);
+        tvHeading.setText(EM_DASH);
+        tvHeadingDir.setText(EM_DASH);
         tvSerialStats.setText("");
-        tvLastFix    .setText("");
-        compassView  .setHeading(0f);
-        if (signalBarsView != null) signalBarsView.setSignals(null);
+        tvLastFix.setText(EM_DASH);
+        compassView.setHeading(0f);
+        if (miniMapView != null)
+            miniMapView.clearTrack();
+        if (popupMapView != null)
+            popupMapView.clearTrack();
+        if (signalBarsView != null)
+            signalBarsView.setSignals(null);
     }
 
     private void clearServiceState() {
         synchronized (UsbSerialService.STATE_LOCK) {
-            UsbSerialService.lastConn           = "Idle";
-            UsbSerialService.lastSignal         = EM_DASH;
-            UsbSerialService.lastPos            = EM_DASH;
-            UsbSerialService.lastMovement       = EM_DASH;
-            UsbSerialService.lastSerialLog      = EM_DASH;
-            UsbSerialService.lastSatellites     = EM_DASH;
-            UsbSerialService.lastSatsInView     = EM_DASH;
-            UsbSerialService.lastSatsUsed       = EM_DASH;
-            UsbSerialService.totalBytes         = 0;
-            UsbSerialService.totalSents         = 0;
-            UsbSerialService.lastFixTime        = 0;
+            UsbSerialService.isRunning = false;
+            UsbSerialService.lastConn = "Idle"; UsbSerialService.lastSignal = EM_DASH;
+            UsbSerialService.lastPos = EM_DASH; UsbSerialService.lastMovement = EM_DASH;
+            UsbSerialService.lastSerialLog = EM_DASH; UsbSerialService.lastSatellites = EM_DASH;
+            UsbSerialService.lastSatsInView = EM_DASH; UsbSerialService.lastSatsUsed = EM_DASH;
+            UsbSerialService.totalBytes = 0; UsbSerialService.totalSents = 0; UsbSerialService.lastFixTime = 0;
+        }
+        synchronized (BluetoothGpsService.STATE_LOCK) {
+            BluetoothGpsService.isRunning = false;
+            BluetoothGpsService.lastConn = "Idle"; BluetoothGpsService.lastSignal = EM_DASH;
+            BluetoothGpsService.lastPos = EM_DASH; BluetoothGpsService.lastMovement = EM_DASH;
+            BluetoothGpsService.lastSerialLog = EM_DASH; BluetoothGpsService.lastSatellites = EM_DASH;
+            BluetoothGpsService.lastSatsInView = EM_DASH; BluetoothGpsService.lastSatsUsed = EM_DASH;
+            BluetoothGpsService.totalBytes = 0; BluetoothGpsService.totalSents = 0; BluetoothGpsService.lastFixTime = 0;
         }
     }
 
-    // ── Permissions ───────────────────────────────────────────────────────────
+    // -- Permissions -----------------------------------------------------------
 
     private boolean checkPermissions() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            }, REQUEST_LOCATION_PERMISSION);
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION},
+                    REQUEST_LOCATION_PERMISSION);
             return false;
+        }
+        if ("bt".equals(connType) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this,
+                    Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.BLUETOOTH_CONNECT,
+                                Manifest.permission.BLUETOOTH_SCAN},
+                        REQUEST_BT_PERMISSION);
+                return false;
+            }
         }
         return true;
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                                           int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_LOCATION_PERMISSION
-                && grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            Intent svc = new Intent(this, UsbSerialService.class);
-            svc.putExtra(UsbSerialService.EXTRA_HZ, selectedHz);
-            ContextCompat.startForegroundService(this, svc);
+        boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        if (requestCode == REQUEST_LOCATION_PERMISSION && granted) {
+            if ("bt".equals(connType)) {
+                if (!selectedBtAddress.isEmpty() && checkPermissions()) {
+                    Intent svc = new Intent(this, BluetoothGpsService.class);
+                    svc.putExtra(BluetoothGpsService.EXTRA_BT_ADDRESS, selectedBtAddress);
+                    svc.putExtra(BluetoothGpsService.EXTRA_BT_NAME, selectedBtName);
+                    ContextCompat.startForegroundService(this, svc);
+                }
+            } else {
+                Intent svc = new Intent(this, UsbSerialService.class);
+                svc.putExtra(UsbSerialService.EXTRA_HZ, selectedHz);
+                ContextCompat.startForegroundService(this, svc);
+            }
+        } else if (requestCode == REQUEST_BT_PERMISSION && granted) {
+            if (!selectedBtAddress.isEmpty()) {
+                Intent svc = new Intent(this, BluetoothGpsService.class);
+                svc.putExtra(BluetoothGpsService.EXTRA_BT_ADDRESS, selectedBtAddress);
+                svc.putExtra(BluetoothGpsService.EXTRA_BT_NAME, selectedBtName);
+                ContextCompat.startForegroundService(this, svc);
+            }
         }
-        // FIX: if permission is denied there is no else-branch to inform the
-        //      user. Consider showing a Snackbar/Dialog here in a future
-        //      iteration explaining why the permission is needed.
     }
 
-    // ── Formatters ────────────────────────────────────────────────────────────
+    // -- Formatters ------------------------------------------------------------
 
     private static String fmtBytes(long b) {
-        // FIX: use Locale.ROOT to prevent locale-specific decimal separators
-        if (b < 1024)        return b + " B";
-        if (b < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KB", b / 1024f);
+        if (b < 1024)
+            return b + " B";
+        if (b < 1024 * 1024)
+            return String.format(Locale.ROOT, "%.1f KB", b / 1024f);
         return String.format(Locale.ROOT, "%.1f MB", b / (1024f * 1024f));
     }
 
     private static String fmtTime(long epochMs) {
-        // FIX: use Locale.ROOT in String.format to avoid locale-specific
-        //      zero-padding issues on some devices.
-        java.util.Calendar c = java.util.Calendar.getInstance(
-            java.util.TimeZone.getTimeZone("UTC"));
+        java.util.Calendar c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
         c.setTimeInMillis(epochMs);
         return String.format(Locale.ROOT, "%02d:%02d:%02d UTC",
-            c.get(java.util.Calendar.HOUR_OF_DAY),
-            c.get(java.util.Calendar.MINUTE),
-            c.get(java.util.Calendar.SECOND));
+                c.get(java.util.Calendar.HOUR_OF_DAY),
+                c.get(java.util.Calendar.MINUTE),
+                c.get(java.util.Calendar.SECOND));
     }
 }

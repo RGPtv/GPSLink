@@ -13,6 +13,7 @@ import android.content.pm.PackageManager;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
+import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Build;
@@ -59,7 +60,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     private static final long   RETRY_DELAY_MS   = 3_000;
     private static final long   STALE_FIX_MS     = 10_000;
 
-    // ── Shared state (guarded by STATE_LOCK where noted) ──────────────────────
+    // -- Shared state (guarded by STATE_LOCK where noted) ----------------------
     public static final Object STATE_LOCK = new Object();
 
     public static volatile boolean isRunning            = false;
@@ -72,38 +73,43 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     public static volatile String  lastSatellites       = "\u2014";
     public static volatile String  lastSatsInView       = "\u2014";
     public static volatile String  lastSatsUsed         = "\u2014";
-    public static volatile String  lastHeading          = "0°";
+    public static volatile String  lastHeading          = "0\u00B0";
     public static volatile String  lastConstellationJson = "";
     public static volatile long    totalBytes           = 0;
     public static volatile int     totalSents           = 0;
+    private static long            lastBroadcastTime    = 0;
     public static volatile long    lastFixTime          = 0;
 
-    // ── Instance fields ───────────────────────────────────────────────────────
+    // -- Instance fields -------------------------------------------------------
     private LocationManager           locationManager;
     private PowerManager.WakeLock     wakeLock;
-    private SerialInputOutputManager  ioManager;
-    private UsbSerialPort             serialPort;
+    private volatile SerialInputOutputManager ioManager;
+    private volatile UsbSerialPort            serialPort;
     private String                    connectedDevName = "";
     private int                       retryCount       = 0;
     private final AtomicBoolean       active           = new AtomicBoolean(false);
+    private final AtomicBoolean       connecting       = new AtomicBoolean(false);
     private ScheduledExecutorService  retryExecutor;
 
-    // NMEA parsing — ALL fields below are only accessed inside nmeaLock
+    // NMEA parsing: all fields below are only accessed inside nmeaLock.
     private final StringBuilder      nmeaBuffer  = new StringBuilder(512);
     private final ArrayDeque<String> serialLines = new ArrayDeque<>();
     private final Object             nmeaLock    = new Object();
 
     private double  latitude = 0, longitude = 0, altitude = 0;
     private float   speed = 0, bearing = 0, accuracy = 5.0f, hdop = 99.0f;
-    private int     satellites = 0, fixQuality = 0;
+    private int     satellites = 0, fixQuality = 0, fixMode = 1;
+    private int     noFixCount = 0; // consecutive GSA no-fix reports before clearing state
     private long    gpsTimeMs  = 0;
     private boolean hasGGA = false, hasRMC = false;
 
     private final Map<String, NmeaParser.SatInfo> seenSats = new LinkedHashMap<>();
+    private final Map<String, Integer> gsvReportedTotal    = new LinkedHashMap<>();
+    private final Map<String, java.util.Set<String>> gsvCurrentCyclePrns = new LinkedHashMap<>();
     private int     satsTrackedCount = 0;
     private boolean hasGGASatCount   = false;
 
-    // ── UBX packet builders ───────────────────────────────────────────────────
+    // -- UBX packet builders ---------------------------------------------------
 
     private static byte[] ubx(int cls, int id, byte[] payload) {
         byte[] msg = new byte[6 + payload.length + 2];
@@ -142,7 +148,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     }
 
     /**
-     * UBX-CFG-GNSS — enables GPS, GLONASS, Galileo, BeiDou.
+     * UBX-CFG-GNSS: enables GPS, GLONASS, Galileo, BeiDou.
      * M7 silently ignores Galileo/BeiDou blocks and applies GPS+GLONASS only.
      */
     private static byte[] ubxCfgGnss() {
@@ -151,25 +157,28 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             0x00,              // numTrkChHw (0 = read from module)
             (byte) 0xFF,       // numTrkChUse (0xFF = use all available)
             0x04,              // numConfigBlocks = 4
-            // GPS (gnssId=0): channels 8–16, enable, L1C/A
+            // GPS (gnssId=0): channels 8-16, enable, L1C/A
             0x00, 0x08, 0x10, 0x00,  (byte)0x01,0x00,0x01,0x01,
-            // GLONASS (gnssId=6): channels 4–8, enable, L1OF
+            // GLONASS (gnssId=6): channels 4-8, enable, L1OF
             0x06, 0x04, 0x08, 0x00,  (byte)0x01,0x00,0x01,0x01,
-            // Galileo (gnssId=2): channels 4–8, enable, E1OS
+            // Galileo (gnssId=2): channels 4-8, enable, E1OS
             0x02, 0x04, 0x08, 0x00,  (byte)0x01,0x00,0x01,0x01,
-            // BeiDou (gnssId=3): channels 2–4, enable, B1I
+            // BeiDou (gnssId=3): channels 2-4, enable, B1I
             0x03, 0x02, 0x04, 0x00,  (byte)0x01,0x00,0x01,0x01,
         });
     }
 
     /**
-     * UBX-CFG-SBAS — enables SBAS ranging and correction.
+     * UBX-CFG-SBAS: enables SBAS ranging, correction, and integrity.
+     * usage=0x07 enables all three: ranging + correction + integrity.
+     * Integrity is important for MSAS (Japan/Philippines region) which
+     * provides integrity signals even where ranging/correction is limited.
      * scanmode=0 means auto-scan all PRNs (WAAS, EGNOS, MSAS, GAGAN).
      */
     private static byte[] ubxCfgSbas() {
         return ubx(0x06, 0x16, new byte[]{
             0x01,                                           // mode: enable
-            0x03,                                           // usage: ranging + correction
+            0x07,                                           // usage: ranging + correction + integrity
             0x03,                                           // maxSBAS channels
             0x00,                                           // scanmode2
             (byte)0x00,(byte)0x00,(byte)0x00,(byte)0x00    // scanmode1: auto
@@ -177,7 +186,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     }
 
     /**
-     * UBX-CFG-CFG — save current config to flash so it survives power cycles.
+     * UBX-CFG-CFG: save current config to flash so it survives power cycles.
      */
     private static byte[] ubxCfgCfg() {
         return ubx(0x06, 0x09, new byte[]{
@@ -187,17 +196,17 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         });
     }
 
-    // ── Broadcast receivers ───────────────────────────────────────────────────
+    // -- Broadcast receivers ---------------------------------------------------
 
     private final BroadcastReceiver usbPermReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context ctx, Intent intent) {
             if (!ACTION_USB_PERM.equals(intent.getAction())) return;
             if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                broadcastConn("USB permission granted – connecting…");
+                broadcastConn("USB permission granted - connecting...");
                 startConnectThread();
             } else {
-                broadcastConn("USB permission denied – tap Allow when prompted");
+                broadcastConn("USB permission denied - tap Allow when prompted");
             }
         }
     };
@@ -209,7 +218,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             int hz = intent.getIntExtra(EXTRA_HZ, 1);
             if (isValidHz(hz) && hz != currentHz) {
                 synchronized (STATE_LOCK) { currentHz = hz; }
-                // Run on a background thread – never block a BroadcastReceiver
+                // Run on a background thread; never block a BroadcastReceiver.
                 new Thread(UsbSerialService.this::applyHzConfig).start();
             }
         }
@@ -221,7 +230,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         return false;
     }
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // -- Lifecycle -------------------------------------------------------------
 
     @Override
     public void onCreate() {
@@ -237,39 +246,57 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
         createNotificationChannel();
 
-        int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                ? Context.RECEIVER_NOT_EXPORTED : 0;
-        registerReceiver(usbPermReceiver, new IntentFilter(ACTION_USB_PERM), flags);
-        registerReceiver(setHzReceiver,   new IntentFilter(ACTION_SET_HZ),   flags);
+        IntentFilter usbPermFilter = new IntentFilter(ACTION_USB_PERM);
+        IntentFilter setHzFilter = new IntentFilter(ACTION_SET_HZ);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbPermReceiver, usbPermFilter, Context.RECEIVER_NOT_EXPORTED);
+            registerReceiver(setHzReceiver, setHzFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(usbPermReceiver, usbPermFilter);
+            registerReceiver(setHzReceiver, setHzFilter);
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        boolean wasRunning = isRunning;
         isRunning = true;
         if (intent != null) {
-            synchronized (STATE_LOCK) {
-                totalBytes  = 0;
-                totalSents  = 0;
-                lastFixTime = 0;
-                retryCount  = 0;
-            }
-            synchronized (nmeaLock) {
-                serialLines.clear();
-                seenSats.clear();
-                satsTrackedCount  = 0;
-                hasGGASatCount    = false;
-                lastSatellites    = "\u2014";
-                lastSatsInView    = "\u2014";
-                lastSatsUsed      = "\u2014";
-            }
             int hz = intent.getIntExtra(EXTRA_HZ, 1);
-            synchronized (STATE_LOCK) { currentHz = isValidHz(hz) ? hz : 1; }
+            int requestedHz = isValidHz(hz) ? hz : 1;
+            boolean hzChanged;
+            synchronized (STATE_LOCK) {
+                hzChanged = currentHz != requestedHz;
+                currentHz = requestedHz;
+                if (!wasRunning) {
+                    totalBytes  = 0;
+                    totalSents  = 0;
+                    lastFixTime = 0;
+                    retryCount  = 0;
+                }
+            }
+            if (!wasRunning) {
+                synchronized (nmeaLock) {
+                    serialLines.clear();
+                    seenSats.clear();
+                    gsvReportedTotal.clear();
+                    gsvCurrentCyclePrns.clear();
+                    satsTrackedCount  = 0;
+                    hasGGASatCount    = false;
+                    lastSatellites    = "\u2014";
+                    lastSatsInView    = "\u2014";
+                    lastSatsUsed      = "\u2014";
+                }
+            } else if (hzChanged) {
+                new Thread(this::applyHzConfig).start();
+            }
         }
 
         if (wakeLock != null && !wakeLock.isHeld()) {
             wakeLock.acquire(10L * 60 * 60 * 1000); // 10-hour cap
         }
-        startForeground(NOTIFICATION_ID, buildNotification("Connecting…"));
+        String notificationText = (wasRunning && serialPort != null) ? lastConn : "Connecting...";
+        startForeground(NOTIFICATION_ID, buildNotification(notificationText));
         startConnectThread();
         return START_STICKY;
     }
@@ -278,6 +305,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     public void onDestroy() {
         active.set(false);
         isRunning = false;
+        connecting.set(false);
         if (retryExecutor != null) {
             retryExecutor.shutdownNow();
             try {
@@ -298,11 +326,19 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
-    // ── USB connection ────────────────────────────────────────────────────────
+    // -- USB connection --------------------------------------------------------
 
     private void startConnectThread() {
         if (!active.get()) return;
-        new Thread(this::connectUsb).start();
+        if (serialPort != null) return;
+        if (!connecting.compareAndSet(false, true)) return;
+        new Thread(() -> {
+            try {
+                connectUsb();
+            } finally {
+                connecting.set(false);
+            }
+        }).start();
     }
 
     private UsbSerialProber buildProber() {
@@ -333,16 +369,16 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
 
         if (drivers.isEmpty()) {
-            broadcastConn("No USB device found – plug in u-blox and tap Start");
+            broadcastConn("No UBLOX device found");
             return;
         }
 
         UsbSerialDriver driver     = drivers.get(0);
         UsbDeviceConnection connection = usbManager.openDevice(driver.getDevice());
         if (connection == null) {
-            broadcastConn("Waiting for USB permission…");
+            broadcastConn("Waiting for USB permission...");
             PendingIntent pi = PendingIntent.getBroadcast(this, 0,
-                    new Intent(ACTION_USB_PERM),
+                    new Intent(ACTION_USB_PERM).setPackage(getPackageName()),
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             usbManager.requestPermission(driver.getDevice(), pi);
             return;
@@ -351,7 +387,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         // BUG FIX: driver.getPorts() may be empty on malformed drivers
         List<UsbSerialPort> ports = driver.getPorts();
         if (ports.isEmpty()) {
-            broadcastConn("USB driver has no ports – unsupported device");
+            broadcastConn("USB driver has no ports - unsupported device");
             connection.close();
             return;
         }
@@ -362,7 +398,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             serialPort.setParameters(BAUD_RATE, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
             serialPort.setDTR(true);
 
-            broadcastConn("Configuring u-blox (" + currentHz + " Hz)…");
+            broadcastConn("Configuring u-blox (" + currentHz + " Hz)...");
             configureUblox();
             setupMockProviders();
 
@@ -372,7 +408,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
 
             connectedDevName = driver.getDevice().getDeviceName();
             retryCount = 0;
-            broadcastConn("Connected · " + connectedDevName + " · " + BAUD_RATE + " baud · " + currentHz + " Hz");
+            broadcastConn("Connected \u00B7 " + connectedDevName + " \u00B7 " + BAUD_RATE + " baud \u00B7 " + currentHz + " Hz");
             Log.d(TAG, "Connected: " + connectedDevName);
         } catch (IOException e) {
             broadcastConn("USB open error: " + e.getMessage());
@@ -381,7 +417,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
     }
 
-    // ── UBX configuration ─────────────────────────────────────────────────────
+    // -- UBX configuration -----------------------------------------------------
 
     private void configureUblox() {
         try { Thread.sleep(600); } catch (InterruptedException ignored) {}
@@ -396,11 +432,14 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         try { Thread.sleep(100); } catch (InterruptedException ignored) {}
 
         sendUbx(ubxCfgMsg(0xF0, 0x41, 0)); // disable GPTXT
-        sendUbx(ubxCfgMsg(0xF0, 0x02, 0)); // disable GSA
         sendUbx(ubxCfgMsg(0xF0, 0x01, 0)); // disable GLL
         sendUbx(ubxCfgMsg(0xF0, 0x05, 0)); // disable VTG
         sendUbx(ubxCfgMsg(0xF0, 0x00, 1)); // GGA on
         sendUbx(ubxCfgMsg(0xF0, 0x04, 1)); // RMC on
+        // GSA must be ON — it is the authoritative source of 2D/3D fix mode and
+        // DOP values. Disabling it left fixMode stuck at 1 (no fix), causing the
+        // fix type label to flicker between "No fix" and "GPS" on every GGA.
+        sendUbx(ubxCfgMsg(0xF0, 0x02, 1)); // GSA on
         sendUbx(ubxCfgMsg(0xF0, 0x03, 1)); // GSV on  (all constellations)
 
         // Save config to flash so it survives power cycles
@@ -412,7 +451,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         UsbSerialPort port = serialPort; // local snapshot prevents disconnect race
         if (port == null) return;
         sendUbx(ubxCfgRate(currentHz));
-        broadcastConn("Connected · " + connectedDevName + " · " + BAUD_RATE + " baud · " + currentHz + " Hz");
+        broadcastConn("Connected \u00B7 " + connectedDevName + " \u00B7 " + BAUD_RATE + " baud \u00B7 " + currentHz + " Hz");
         Log.d(TAG, "Hz updated to " + currentHz);
     }
 
@@ -429,23 +468,28 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
     }
 
-    // ── Mock location providers ───────────────────────────────────────────────
+    // -- Mock location providers -----------------------------------------------
 
     private void setupMockProviders() {
+        if (locationManager == null) {
+            Log.w(TAG, "Location service unavailable, skipping mock provider setup");
+            return;
+        }
         if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "Location permission missing, skipping mock provider setup");
             return;
         }
         tryAddProvider(LocationManager.GPS_PROVIDER,
-                android.location.provider.ProviderProperties.POWER_USAGE_HIGH,
-                android.location.provider.ProviderProperties.ACCURACY_FINE);
+                Criteria.POWER_HIGH,
+                Criteria.ACCURACY_FINE);
         tryAddProvider(LocationManager.NETWORK_PROVIDER,
-                android.location.provider.ProviderProperties.POWER_USAGE_LOW,
-                android.location.provider.ProviderProperties.ACCURACY_COARSE);
+                Criteria.POWER_LOW,
+                Criteria.ACCURACY_COARSE);
     }
 
     private void tryAddProvider(String p, int power, int acc) {
+        if (locationManager == null) return;
         try { locationManager.removeTestProvider(p); } catch (Exception ignored) {}
         try {
             locationManager.addTestProvider(p, false, false, false, false,
@@ -457,11 +501,12 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     }
 
     private void removeProviders() {
+        if (locationManager == null) return;
         try { locationManager.removeTestProvider(LocationManager.GPS_PROVIDER);     } catch (Exception ignored) {}
         try { locationManager.removeTestProvider(LocationManager.NETWORK_PROVIDER); } catch (Exception ignored) {}
     }
 
-    // ── Serial data reception ─────────────────────────────────────────────────
+    // -- Serial data reception -------------------------------------------------
 
     /**
      * Called by SerialInputOutputManager on a background thread whenever new
@@ -474,7 +519,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
      */
     @Override
     public void onNewData(byte[] data) {
-        totalBytes += data.length; // volatile write — single writer thread
+        totalBytes += data.length; // volatile write, single writer thread
 
         synchronized (nmeaLock) {
             nmeaBuffer.append(new String(data, StandardCharsets.ISO_8859_1));
@@ -486,7 +531,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             }
             // Guard against a pathological stream with no newlines
             if (nmeaBuffer.length() > 512) {
-                Log.w(TAG, "NMEA buffer overflow – discarding partial line");
+                Log.w(TAG, "NMEA buffer overflow - discarding partial line");
                 int lastNL = nmeaBuffer.lastIndexOf("\n");
                 if (lastNL > 0) nmeaBuffer.delete(0, lastNL + 1);
                 else            nmeaBuffer.setLength(0);
@@ -494,10 +539,10 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
     }
 
-    // ── NMEA sentence processing (called inside nmeaLock) ────────────────────
+    // -- NMEA sentence processing (called inside nmeaLock) --------------------
 
     private void processSentence(String sentence) {
-        // Diagnostic TXT messages — log but don't parse as GPS data
+        // Diagnostic TXT messages: log but don't parse as GPS data.
         if (sentence.startsWith("$GPTXT") || sentence.startsWith("$GNTXT")) {
             appendSerialLine(NmeaParser.verifyChecksum(sentence)
                     ? "[TXT] " + sentence : "[BAD CRC] " + sentence);
@@ -512,32 +557,48 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             return;
         }
 
-        // GSV — satellite-in-view data
+        // GSV satellite-in-view data
         if (sentence.contains("GSV")) {
             List<NmeaParser.SatInfo> sats = NmeaParser.parseGSV(sentence);
-            if (!sats.isEmpty()) {
-                String[] parts = sentence.split(",", -1);
-                // First message in a GSV sequence resets stale entries for that talker.
-                // BUG FIX: use the talker-derived constellation from the raw sentence
-                // header (parts[0] e.g. "$GLGSV") instead of sats.get(0).constellation,
-                // which may have been relabeled (e.g. SBAS PRNs inside a $GPGSV sentence
-                // would cause the reset key to be "SBAS" instead of "GPS", leaving stale
-                // GPS entries permanently in seenSats).
-                boolean isFirstMsg = parts.length > 2 && "1".equals(parts[2].trim());
-                if (isFirstMsg) {
-                    String talkerConstellation = NmeaParser.constellationFromTalker(parts[0]);
-                    if ("GNSS".equals(talkerConstellation)) {
-                        // $GN talker aggregates all constellations — clear everything
-                        seenSats.clear();
-                    } else {
-                        final String resetPrefix = talkerConstellation + ":";
-                        seenSats.entrySet().removeIf(e -> e.getKey().startsWith(resetPrefix));
+            String[] parts = sentence.split(",", -1);
+            if (parts.length > 2) {
+                String talker = parts[0];
+                String talkerConstellation = NmeaParser.constellationFromTalker(talker);
+                boolean isFirstMsg = "1".equals(parts[2].trim());
+                boolean isLastMsg  = parts.length > 1 && parts[1].trim().equals(parts[2].trim());
+
+                if (isFirstMsg && parts.length > 3 && !parts[3].trim().isEmpty()) {
+                    try {
+                        gsvReportedTotal.put(talker, Integer.parseInt(parts[3].trim()));
+                    } catch (NumberFormatException ignored) {}
+                }
+
+                if (!sats.isEmpty()) {
+                    if (isFirstMsg) {
+                        if ("GNSS".equals(talkerConstellation)) {
+                            gsvCurrentCyclePrns.clear();
+                        }
+                        gsvCurrentCyclePrns.put(talker, new java.util.HashSet<>());
                     }
+
+                    java.util.Set<String> cyclePrns = gsvCurrentCyclePrns.computeIfAbsent(
+                            talker, k -> new java.util.HashSet<>());
+                    for (NmeaParser.SatInfo s : sats) {
+                        String key = s.constellation + ":" + s.prn;
+                        seenSats.put(key, s);
+                        cyclePrns.add(key);
+                    }
+
+                    if (isLastMsg) {
+                        java.util.Set<String> seen = gsvCurrentCyclePrns.getOrDefault(
+                                talker, java.util.Collections.emptySet());
+                        String prefix = talkerConstellation + ":";
+                        seenSats.entrySet().removeIf(
+                                e -> e.getKey().startsWith(prefix) && !seen.contains(e.getKey()));
+                    }
+
+                    updateSatelliteSummary();
                 }
-                for (NmeaParser.SatInfo s : sats) {
-                    seenSats.put(s.constellation + ":" + s.prn, s);
-                }
-                updateSatelliteSummary();
             }
             appendSerialLine(sentence);
             broadcastSerial();
@@ -551,11 +612,17 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         if (d == null || !d.valid) return;
 
         totalSents++;
-        Log.d(TAG, "✓ Valid " + d.type
+        Log.d(TAG, "? Valid " + d.type
                 + ": lat=" + String.format("%.6f", d.latitude)
                 + " lon=" + String.format("%.6f", d.longitude));
 
         if ("GGA".equals(d.type)) {
+            // FIX: reject implausible fixes — need at least 3 sats for a position,
+            // 4 for a proper 3-D fix. 1–2 sat "fixes" are not trustworthy.
+            if (d.satellites < 3) {
+                Log.d(TAG, "Skipping GGA: only " + d.satellites + " satellite(s) in use");
+                return;
+            }
             latitude         = d.latitude;
             longitude        = d.longitude;
             altitude         = d.altitude;
@@ -566,29 +633,80 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             satsTrackedCount = d.satellites;
             hasGGASatCount   = true;
             hasGGA           = true;
+            noFixCount       = 0; // a valid GGA immediately resets the no-fix debounce counter
+            // Use GGA time-of-day as fallback when RMC hasn't arrived yet
+            if (!hasRMC && d.gpsTimeMs > 0) {
+                gpsTimeMs   = d.gpsTimeMs;
+            }
+            lastFixTime = System.currentTimeMillis();
+            // Debounce broadcasts: only send if this is the first sentence of the epoch
+            // or if it's been > 200ms since last broadcast.
+            if (System.currentTimeMillis() - lastBroadcastTime > 200) {
+                pushLocation();
+                broadcastAll();
+                lastBroadcastTime = System.currentTimeMillis();
+            }
         } else if ("RMC".equals(d.type)) {
             speed   = d.speed;
             bearing = d.bearing;
             if (d.gpsTimeMs > 0) {
                 gpsTimeMs   = d.gpsTimeMs;
-                lastFixTime = d.gpsTimeMs;
             }
-            // Only fall back to RMC position when GGA hasn't been received yet
-            if (!hasGGA) {
+            lastFixTime = System.currentTimeMillis();
+            
+            if (d.latitude != 0 || d.longitude != 0) {
                 latitude  = d.latitude;
                 longitude = d.longitude;
             }
             hasRMC = true;
-        }
+            if (System.currentTimeMillis() - lastBroadcastTime > 200) {
+                pushLocation();
+                broadcastAll();
+                lastBroadcastTime = System.currentTimeMillis();
+            }
+        } else if ("GSA".equals(d.type)) {
+            // FIX: store fix mode separately — do NOT mix it into fixQuality.
+            // fixQuality comes from GGA field 6 (0=none,1=GPS,2=DGPS…) and uses
+            // a completely different scale from GSA fixMode (1=none,2=2D,3=3D).
+            fixMode = d.fixMode;
 
-        pushLocation();
-        broadcastAll();
+            if (d.fixMode == 1) {
+                // FIX: debounce — require several consecutive no-fix GSA reports
+                // before clearing hasGGA. A single GSA no-fix during acquisition
+                // or a momentary signal dip was previously enough to wipe a valid
+                // GGA fix, causing the visible flicker between "No fix" and "GPS".
+                noFixCount++;
+                if (noFixCount >= 3) {
+                    fixQuality = 0;
+                    hasGGA     = false;
+                    hasRMC     = false;
+                    Log.d(TAG, "GSA: " + noFixCount + " consecutive no-fix reports — clearing fix state");
+                }
+            } else {
+                // Any valid fix mode resets the counter immediately.
+                noFixCount = 0;
+            }
+
+            // Only adopt GSA DOP when it's more precise than current GGA value.
+            if (d.hdop < hdop) {
+                hdop     = d.hdop;
+                accuracy = Math.max(1.0f, d.hdop * 4.0f);
+            }
+            // Do NOT push location here — GSA doesn't update lat/lon.
+            // Update UI only so DOP/fix-mode label refreshes.
+            broadcastAll();
+        } else if ("VTG".equals(d.type)) {
+            // VTG provides direct speed/course; use as supplement.
+            speed   = d.speed;
+            bearing = d.bearing;
+            // FIX: do NOT push location here — VTG doesn't update lat/lon.
+            broadcastAll();
+        }
     }
 
-    // ── Satellite summary ─────────────────────────────────────────────────────
+    // -- Satellite summary -----------------------------------------------------
 
     private void updateSatelliteSummary() {
-        int seen    = seenSats.size();
         Map<String, Integer> byConstellation   = new LinkedHashMap<>();
         Map<String, int[]>   snrByConstellation = new LinkedHashMap<>(); // [snrSum, satCount]
 
@@ -605,7 +723,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             }
         }
 
-        // Build JSON for SignalBarsView: [{"label":"GPS","avgSnr":38,"count":6}, …]
+        // Build JSON for SignalBarsView: [{"label":"GPS","avgSnr":38,"count":6}, ...]
         StringBuilder json = new StringBuilder("[");
         boolean firstEntry = true;
         for (Map.Entry<String, Integer> e : byConstellation.entrySet()) {
@@ -624,11 +742,13 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         lastConstellationJson = json.toString();
 
         int displayUsed = hasGGASatCount ? satsTrackedCount : 0;
-        // In-view should never be less than in-use
+        int reportedTotal = 0;
+        for (int v : gsvReportedTotal.values()) reportedTotal += v;
+        int seen = reportedTotal > 0 ? reportedTotal : seenSats.size();
         int displaySeen = Math.max(seen, displayUsed);
 
         StringBuilder sb = new StringBuilder();
-        sb.append(displaySeen).append(" seen · ").append(displayUsed).append(" in use");
+        sb.append(displaySeen).append(" seen \u00B7 ").append(displayUsed).append(" in use");
         if (!byConstellation.isEmpty()) {
             sb.append("  ");
             boolean first = true;
@@ -657,11 +777,21 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
     }
 
-    // ── Location injection ────────────────────────────────────────────────────
+    // -- Location injection ----------------------------------------------------
 
     private void pushLocation() {
         if (!hasGGA && !hasRMC) return;
         if (locationManager == null) return;
+        // FIX: do not inject stale positions into the mock provider. Android's
+        // location engine will reject them anyway once their elapsed-nanos age
+        // exceeds its internal threshold, and doing so ourselves avoids feeding
+        // apps a last-known position that is clearly outdated.
+        long nowMs = System.currentTimeMillis();
+        if (lastFixTime > 0 && nowMs - lastFixTime > STALE_FIX_MS) {
+            Log.d(TAG, "Skipping pushLocation: fix is stale ("
+                    + (nowMs - lastFixTime) + " ms old)");
+            return;
+        }
         long time  = gpsTimeMs > 0 ? gpsTimeMs : System.currentTimeMillis();
         long nanos = SystemClock.elapsedRealtimeNanos();
         pushToProvider(LocationManager.GPS_PROVIDER,     time, nanos);
@@ -679,18 +809,25 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             loc.setBearing(bearing);
             loc.setTime(time);
             loc.setElapsedRealtimeNanos(nanos);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                loc.setVerticalAccuracyMeters(accuracy * 1.5f);
+                loc.setSpeedAccuracyMetersPerSecond(accuracy * 0.1f);
+                loc.setBearingAccuracyDegrees(accuracy * 2.0f);
+            }
+
             locationManager.setTestProviderLocation(provider, loc);
         } catch (Exception e) {
             Log.w(TAG, "push " + provider + ": " + e.getMessage());
         }
     }
 
-    // ── Broadcast helpers ─────────────────────────────────────────────────────
+    // -- Broadcast helpers -----------------------------------------------------
 
     private void broadcastConn(String msg) {
         synchronized (STATE_LOCK) { lastConn = msg; }
         updateNotification(msg);
-        sendBroadcast(new Intent(ACTION_STATUS).putExtra("conn", msg));
+        sendStatusBroadcast(new Intent(ACTION_STATUS).putExtra("conn", msg));
         Log.d(TAG, msg);
     }
 
@@ -704,21 +841,26 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
 
         synchronized (STATE_LOCK) {
             lastSignal   = satStr + "  Fix: " + fixStr
+                         + (fixMode == 3 ? " 3D" : fixMode == 2 ? " 2D" : "")
                          + "  HDOP: " + String.format("%.1f", hdop)
-                         + "  ±" + String.format("%.0f", accuracy) + " m";
-            lastPos      = String.format("%.6f° %s\n%.6f° %s\nAlt: %.1f m",
-                           Math.abs(latitude),  latDir,
-                           Math.abs(longitude), lonDir,
-                           altitude);
-            lastMovement = String.format("Speed: %.1f km/h\nCourse: %.1f°\nHDOP: %.2f\nFix: %s",
+                         + "  \u00B1" + String.format("%.0f", accuracy) + " m";
+            if (lastFixTime > 0) {
+                lastPos = String.format("%.6f\u00B0 %s\n%.6f\u00B0 %s\nAlt: %.1f m",
+                        Math.abs(latitude),  latDir,
+                        Math.abs(longitude), lonDir,
+                        altitude);
+            } else {
+                lastPos = "\u2014";
+            }
+            lastMovement = String.format("Speed: %.1f km/h\nCourse: %.1f\u00B0\nHDOP: %.2f\nFix: %s",
                            speed * 3.6f, bearing, hdop, fixStr);
-            lastHeading  = String.format("%.1f°", bearing);
+            lastHeading  = String.format("%.1f\u00B0", bearing);
         }
 
-        updateNotification(String.format("%.5f, %.5f  %s  ±%.0f m",
+        updateNotification(String.format("%.5f, %.5f  %s  \u00B1%.0f m",
                 latitude, longitude, fixStr, accuracy));
 
-        sendBroadcast(new Intent(ACTION_STATUS)
+        sendStatusBroadcast(new Intent(ACTION_STATUS)
                 .putExtra("signal",           lastSignal)
                 .putExtra("position",         lastPos)
                 .putExtra("movement",         lastMovement)
@@ -729,12 +871,12 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 .putExtra("fixtime",          lastFixTime)
                 .putExtra("satsInView",       lastSatsInView)
                 .putExtra("satsUsed",         lastSatsUsed)
-                .putExtra("heading",          String.format("%.1f°", bearing))
+                .putExtra("heading",          String.format("%.1f\u00B0", bearing))
                 .putExtra("constellationJson", lastConstellationJson));
     }
 
     private void broadcastSerial() {
-        sendBroadcast(new Intent(ACTION_STATUS)
+        sendStatusBroadcast(new Intent(ACTION_STATUS)
                 .putExtra("serial",           lastSerialLog)
                 .putExtra("bytes",            totalBytes)
                 .putExtra("sents",            totalSents)
@@ -744,7 +886,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 .putExtra("constellationJson", lastConstellationJson));
     }
 
-    // ── Serial log ────────────────────────────────────────────────────────────
+    // -- Serial log ------------------------------------------------------------
 
     private void appendSerialLine(String line) {
         serialLines.addLast(line);
@@ -757,7 +899,12 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         lastSerialLog = sb.toString();
     }
 
-    // ── Fix / compass labels ──────────────────────────────────────────────────
+    private void sendStatusBroadcast(Intent intent) {
+        intent.setPackage(getPackageName());
+        sendBroadcast(intent);
+    }
+
+    // -- Fix / compass labels --------------------------------------------------
 
     private static String fixLabel(int q) {
         switch (q) {
@@ -771,24 +918,25 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
     }
 
-    // ── Serial I/O error handling ─────────────────────────────────────────────
+    // -- Serial I/O error handling ---------------------------------------------
 
     @Override
     public void onRunError(Exception e) {
         Log.e(TAG, "Serial I/O error", e);
         hasGGA = false;
         hasRMC = false;
-        gpsTimeMs = 0;
+        gpsTimeMs  = 0;
+        noFixCount = 0;
         stopIo();
         if (!active.get()) return;
 
         retryCount++;
         if (retryCount > MAX_AUTO_RETRIES) {
-            broadcastConn("USB disconnected – tap Start to reconnect");
+            broadcastConn("USB disconnected - tap Start to reconnect");
             retryCount = 0;
             return;
         }
-        broadcastConn("Disconnected – retrying in 3 s (" + retryCount + "/" + MAX_AUTO_RETRIES + ")");
+        broadcastConn("Disconnected - retrying in 3 s (" + retryCount + "/" + MAX_AUTO_RETRIES + ")");
         if (retryExecutor != null && !retryExecutor.isShutdown()) {
             retryExecutor.schedule(
                     () -> { if (active.get()) startConnectThread(); },
@@ -804,13 +952,14 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
         }
     }
 
-    // ── Notification ──────────────────────────────────────────────────────────
+    // -- Notification ----------------------------------------------------------
 
     private void createNotificationChannel() {
         NotificationChannel ch = new NotificationChannel(
                 CHANNEL_ID, "GPSLink GPS", NotificationManager.IMPORTANCE_LOW);
         ch.setDescription("Live GPS from u-blox receiver");
-        getSystemService(NotificationManager.class).createNotificationChannel(ch);
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) manager.createNotificationChannel(ch);
     }
 
     private Notification buildNotification(String text) {
@@ -818,7 +967,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("GPSLink · " + currentHz + " Hz")
+                .setContentTitle("GPSLink \u00B7 " + currentHz + " Hz")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setContentIntent(pi)
@@ -828,7 +977,9 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     }
 
     private void updateNotification(String text) {
-        getSystemService(NotificationManager.class)
-                .notify(NOTIFICATION_ID, buildNotification(text));
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify(NOTIFICATION_ID, buildNotification(text));
+        }
     }
 }
