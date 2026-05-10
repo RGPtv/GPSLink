@@ -57,9 +57,11 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
-        # gradlew is already executable in most Android repos; chmod only if needed
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -87,6 +89,9 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
       - name: Decode keystore
         run: |
