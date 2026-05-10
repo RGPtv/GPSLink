@@ -51,7 +51,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     private static final String ACTION_USB_PERM  = "com.gpslink.USB_PERMISSION";
     public  static final String EXTRA_HZ         = "hz";
 
-    private static final int[]  SUPPORTED_HZ     = {1, 5, 10};
+    private static final int[]  SUPPORTED_HZ     = {1, 5}; // P3-2: 10 removed; not exposed in UI
     private static final int    SERIAL_LOG_MAX   = 12;
     private static final int    UBLOX_VID        = 0x1546;
     private static final int[]  UBLOX_PIDS       = {0x01A7, 0x01A8, 0x01A9, 0x01AA};
@@ -495,6 +495,8 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
             locationManager.addTestProvider(p, false, false, false, false,
                     true, true, true, power, acc);
             locationManager.setTestProviderEnabled(p, true);
+        } catch (SecurityException se) {
+            Log.e(TAG, "MOCK_LOCATION permission denied for " + p + " — GPS injection disabled");
         } catch (Exception e) {
             Log.w(TAG, "addTestProvider " + p + ": " + e.getMessage());
         }
@@ -678,6 +680,7 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
                 noFixCount++;
                 if (noFixCount >= 3) {
                     fixQuality = 0;
+                    fixMode    = 1;
                     hasGGA     = false;
                     hasRMC     = false;
                     Log.d(TAG, "GSA: " + noFixCount + " consecutive no-fix reports — clearing fix state");
@@ -923,10 +926,12 @@ public class UsbSerialService extends Service implements SerialInputOutputManage
     @Override
     public void onRunError(Exception e) {
         Log.e(TAG, "Serial I/O error", e);
-        hasGGA = false;
-        hasRMC = false;
-        gpsTimeMs  = 0;
-        noFixCount = 0;
+        synchronized (nmeaLock) {
+            hasGGA = false;
+            hasRMC = false;
+            gpsTimeMs  = 0;
+            noFixCount = 0;
+        }
         stopIo();
         if (!active.get()) return;
 

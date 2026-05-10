@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![GPSLink Banner](assets/banner.png)
+![GPSLink Banner](app/src/main/res/mipmap-xxxhdpi/ic_launcher.png)
 
 **High-precision GNSS bridging for Android — no root required.**
 

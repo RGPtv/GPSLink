@@ -56,8 +56,8 @@ public class BluetoothGpsService extends Service {
     private static final long RETRY_DELAY_MS  = 3_000;
     private static final long STALE_FIX_MS    = 10_000;
 
-    // -- Shared state (same lock object as UsbSerialService so MainActivity can guard both) --
-    public static final Object STATE_LOCK = new Object();
+    // Shared with UsbSerialService so MainActivity can acquire a single lock for both services.
+    public static final Object STATE_LOCK = UsbSerialService.STATE_LOCK;
 
     public static volatile boolean isRunning             = false;
     public static volatile String  lastConn              = "Not started";
@@ -221,7 +221,10 @@ public class BluetoothGpsService extends Service {
             return;
         }
 
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        // P2-4: BluetoothAdapter.getDefaultAdapter() deprecated API 31+
+        android.bluetooth.BluetoothManager bm =
+                (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = (bm != null) ? bm.getAdapter() : null;
         if (adapter == null) {
             broadcastConn("Bluetooth not available on this device");
             return;
@@ -301,10 +304,12 @@ public class BluetoothGpsService extends Service {
     }
 
     private void handleDisconnect(String reason) {
-        hasGGA     = false;
-        hasRMC     = false;
-        gpsTimeMs  = 0;
-        noFixCount = 0;
+        synchronized (nmeaLock) {
+            hasGGA     = false;
+            hasRMC     = false;
+            gpsTimeMs  = 0;
+            noFixCount = 0;
+        }
         stopIo();
         if (!active.get()) return;
 
@@ -327,17 +332,17 @@ public class BluetoothGpsService extends Service {
     }
 
     private void stopIo() {
+        // Close socket FIRST so a blocked read() throws IOException immediately
+        if (btSocket != null) { try { btSocket.close(); } catch (IOException ignored) {} btSocket = null; }
         if (readerThread != null) { readerThread.interrupt(); readerThread = null; }
         if (btInputStream != null) { try { btInputStream.close(); } catch (IOException ignored) {} btInputStream = null; }
-        if (btSocket != null) { try { btSocket.close(); } catch (IOException ignored) {} btSocket = null; }
     }
 
     // -- NMEA data reception --------------------------------------------------
 
     private void onNewData(byte[] data, int length) {
-        totalBytes += length;
-
         synchronized (nmeaLock) {
+            totalBytes += length;
             nmeaBuffer.append(new String(data, 0, length, StandardCharsets.ISO_8859_1));
             int idx;
             while ((idx = nmeaBuffer.indexOf("\n")) >= 0) {
@@ -623,6 +628,8 @@ public class BluetoothGpsService extends Service {
             locationManager.addTestProvider(p, false, false, false, false,
                     true, true, true, power, acc);
             locationManager.setTestProviderEnabled(p, true);
+        } catch (SecurityException se) {
+            Log.e(TAG, "MOCK_LOCATION permission denied for " + p + " — GPS injection disabled");
         } catch (Exception e) {
             Log.w(TAG, "addTestProvider " + p + ": " + e.getMessage());
         }

@@ -9,6 +9,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.location.Criteria;
+import android.location.LocationManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -113,6 +115,7 @@ public class MainActivity extends AppCompatActivity {
             if (intent == null)
                 return;
             runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 String conn = intent.getStringExtra("conn");
                 String signal = intent.getStringExtra("signal");
                 String pos = intent.getStringExtra("position");
@@ -212,8 +215,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Start / Stop logic
         btnStart.setOnClickListener(v -> {
-            boolean isRunning = UsbSerialService.isRunning || BluetoothGpsService.isRunning;
-            if (isRunning) {
+            if (isAnyServiceRunning()) {
                 stopGpsService();
             } else {
                 startGpsService();
@@ -233,8 +235,8 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Restore if service is already running
-        selectedHz = UsbSerialService.currentHz;
-        if (UsbSerialService.isRunning || BluetoothGpsService.isRunning) {
+        if (isAnyServiceRunning()) {
+            selectedHz = UsbSerialService.currentHz; // P1-5: only override saved Hz when service is live
             restoreState();
         } else {
             resetCards();
@@ -257,18 +259,38 @@ public class MainActivity extends AppCompatActivity {
     private void checkMockLocationStatus() {
         View card = findViewById(R.id.cardMockWarning);
         if (card == null) return;
-        boolean isMock = false;
+
+        // Step 1: developer options must be on — if not, mock location can never work.
+        int devOptions = 0;
         try {
-            android.location.LocationManager lm = (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
-            // On modern Android, we can't easily check if WE are the mock provider without trying to use it.
-            // But we can check if developer options are enabled or if we can add a test provider.
-            lm.addTestProvider("test_check", false, false, false, false, true, true, true, 0, 5);
-            lm.removeTestProvider("test_check");
-            isMock = true;
-        } catch (SecurityException e) {
-            isMock = false;
-        } catch (Exception e) {
-            isMock = true; // Assume okay if other error
+            devOptions = android.provider.Settings.Global.getInt(
+                    getContentResolver(), android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0);
+        } catch (Exception ignored) {}
+        if (devOptions == 0) {
+            card.setVisibility(View.VISIBLE);
+            return;
+        }
+
+        // Step 2: actually probe whether we can add a test provider.
+        // Use GPS_PROVIDER — fake provider names throw IllegalArgumentException on API 31+
+        // regardless of mock location permission, making them useless as a probe.
+        boolean isMock = false;
+        android.location.LocationManager lm =
+                (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (lm != null) {
+            try {
+                // removeTestProvider first in case a previous run left it registered.
+                try { lm.removeTestProvider(LocationManager.GPS_PROVIDER); } catch (Exception ignored) {}
+                lm.addTestProvider(LocationManager.GPS_PROVIDER,
+                        false, false, false, false, true, true, true,
+                        android.location.Criteria.POWER_HIGH, android.location.Criteria.ACCURACY_FINE);
+                lm.removeTestProvider(LocationManager.GPS_PROVIDER);
+                isMock = true;
+            } catch (SecurityException e) {
+                isMock = false; // permission denied — this app is not the mock location app
+            } catch (Exception e) {
+                isMock = false; // unexpected failure — show warning to be safe
+            }
         }
         card.setVisibility(isMock ? View.GONE : View.VISIBLE);
     }
@@ -300,8 +322,14 @@ public class MainActivity extends AppCompatActivity {
         updateActionButtonUi();
     }
 
+    private boolean isAnyServiceRunning() {
+        synchronized (UsbSerialService.STATE_LOCK) {
+            return UsbSerialService.isRunning || BluetoothGpsService.isRunning;
+        }
+    }
+
     private void updateActionButtonUi() {
-        boolean running = UsbSerialService.isRunning || BluetoothGpsService.isRunning;
+        boolean running = isAnyServiceRunning();
         btnStart.setText(running ? R.string.btn_stop : R.string.btn_start);
         // Use setTint for the button background to keep the shape/ripple
         if (btnStart.getBackground() != null) {
@@ -323,8 +351,9 @@ public class MainActivity extends AppCompatActivity {
         else
             registerReceiver(statusReceiver, f);
         isReceiverRegistered = true;
-        if (UsbSerialService.isRunning || BluetoothGpsService.isRunning) {
-            selectedHz = UsbSerialService.currentHz;
+        checkMockLocationStatus(); // re-check every resume in case user just set mock location app
+        if (isAnyServiceRunning()) {
+            selectedHz = UsbSerialService.currentHz; // P1-5: only adopt when service is live
             restoreState();
         }
     }
@@ -348,6 +377,7 @@ public class MainActivity extends AppCompatActivity {
     // -- Settings Dialog -------------------------------------------------------
 
     private void showSettingsDialog() {
+        if (isFinishing() || isDestroyed()) return;
         settingsDialog = new Dialog(this);
         settingsDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         settingsDialog.setContentView(R.layout.dialog_settings);
@@ -445,7 +475,11 @@ public class MainActivity extends AppCompatActivity {
     private void populateBtDeviceList(LinearLayout list, TextView tvEmpty,
             LinearLayout selectedRow, TextView tvSelected) {
         list.removeAllViews();
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        BluetoothAdapter adapter = null;
+        android.bluetooth.BluetoothManager bm =
+                (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+        if (bm != null) adapter = bm.getAdapter();
+        // P2-4: BluetoothAdapter.getDefaultAdapter() deprecated API 31+
         if (adapter == null) {
             tvEmpty.setText("Bluetooth not available on this device.");
             tvEmpty.setVisibility(View.VISIBLE);
@@ -524,8 +558,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private float cachedDensity = 0f;
     private int dp(int px) {
-        return Math.round(px * getResources().getDisplayMetrics().density);
+        if (cachedDensity == 0f) cachedDensity = getResources().getDisplayMetrics().density;
+        return Math.round(px * cachedDensity);
     }
 
     private void applyHzUiDialog(Button btn1, Button btn5, TextView note, int hz) {
@@ -542,12 +578,13 @@ public class MainActivity extends AppCompatActivity {
     private void updateHdrSub() {
         tvHdrSub.setText("usb".equals(connType) ? R.string.conn_usb : R.string.conn_bt);
         // If not running, ensure the subtitle matches the idle state (e.g. show remembered BT dev)
-        if (!UsbSerialService.isRunning && !BluetoothGpsService.isRunning) {
+        if (!isAnyServiceRunning()) {
             resetCards();
         }
     }
 
     private void showMapPopup() {
+        if (isFinishing() || isDestroyed()) return;
         mapPopupDialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         mapPopupDialog.setContentView(R.layout.dialog_map);
 
@@ -645,7 +682,8 @@ public class MainActivity extends AppCompatActivity {
         if (lines.length >= 1) {
             String line = lines[0].trim();
             // Match pattern like "12.345678° N" or "Lat: 12.345678° N"
-            String numericPart = line.replaceAll("[^0-9.+-]", "");
+            // P1-4: strip +/- so the sign from dirPart isn't applied twice
+            String numericPart = line.replaceAll("[^0-9.]", "");
             String dirPart = line.substring(line.length() - 1).toUpperCase(Locale.ROOT);
             try {
                 if (!numericPart.isEmpty()) {
@@ -658,7 +696,8 @@ public class MainActivity extends AppCompatActivity {
         }
         if (lines.length >= 2) {
             String line = lines[1].trim();
-            String numericPart = line.replaceAll("[^0-9.+-]", "");
+            // P1-4: strip +/- so the sign from dirPart isn't applied twice
+            String numericPart = line.replaceAll("[^0-9.]", "");
             String dirPart = line.substring(line.length() - 1).toUpperCase(Locale.ROOT);
             try {
                 if (!numericPart.isEmpty()) {
@@ -683,7 +722,12 @@ public class MainActivity extends AppCompatActivity {
                 miniMapView.setPosition(signedLat, signedLon);
                 lastMapLat = signedLat;
                 lastMapLon = signedLon;
-                saveSettings();
+                // P1-1: only persist when moved >~11m (0.0001°) to avoid 5Hz disk writes
+                if (Math.abs(signedLat - lastSavedLat) > 0.0001f || Math.abs(signedLon - lastSavedLon) > 0.0001f) {
+                    lastSavedLat = signedLat;
+                    lastSavedLon = signedLon;
+                    saveSettings();
+                }
             }
         }
         if (popupMapView != null && signedLat != null && signedLon != null) {
@@ -693,6 +737,8 @@ public class MainActivity extends AppCompatActivity {
 
     private float lastMapLat = 0;
     private float lastMapLon = 0;
+    private float lastSavedLat = 0; // P1-1: tracks last persisted position to debounce saves
+    private float lastSavedLon = 0;
 
     private void setPositionEmpty() {
         tvLatitude.setText(EM_DASH);
@@ -741,24 +787,6 @@ public class MainActivity extends AppCompatActivity {
         return colon >= 0 ? line.substring(colon + 1).trim() : line.trim();
     }
 
-    private Float parseSignedCoordinate(String[] parts) {
-        if (parts.length < 1 || parts[0].isEmpty() || EM_DASH.equals(parts[0]))
-            return null;
-        try {
-            String numeric = parts[0].replaceAll("[^0-9.+-]", "");
-            if (numeric.isEmpty())
-                return null;
-            float value = Float.parseFloat(numeric);
-            if (parts.length >= 2) {
-                String dir = parts[1].toUpperCase(Locale.ROOT);
-                if ("S".equals(dir) || "W".equals(dir))
-                    value *= -1f;
-            }
-            return value;
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
-    }
 
     private void updateHeading(String headingStr) {
         if (headingStr == null || headingStr.isEmpty()) {
@@ -813,8 +841,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void restoreState() {
         boolean btRunning = BluetoothGpsService.isRunning;
-        Object lock = btRunning ? BluetoothGpsService.STATE_LOCK : UsbSerialService.STATE_LOCK;
-        synchronized (lock) {
+        // Both STATE_LOCK references are now the same object, so one synchronized
+        // block protects fields from both services.
+        synchronized (UsbSerialService.STATE_LOCK) {
             String conn  = btRunning ? BluetoothGpsService.lastConn  : UsbSerialService.lastConn;
             String sig   = btRunning ? BluetoothGpsService.lastSignal : UsbSerialService.lastSignal;
             String pos   = btRunning ? BluetoothGpsService.lastPos   : UsbSerialService.lastPos;
@@ -945,6 +974,7 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
         if (requestCode == REQUEST_LOCATION_PERMISSION && granted) {
+            if (isAnyServiceRunning()) return; // P2-2: don't double-start
             if ("bt".equals(connType)) {
                 if (!selectedBtAddress.isEmpty() && checkPermissions()) {
                     Intent svc = new Intent(this, BluetoothGpsService.class);
@@ -958,6 +988,7 @@ public class MainActivity extends AppCompatActivity {
                 ContextCompat.startForegroundService(this, svc);
             }
         } else if (requestCode == REQUEST_BT_PERMISSION && granted) {
+            if (isAnyServiceRunning()) return; // P2-2: don't double-start
             if (!selectedBtAddress.isEmpty()) {
                 Intent svc = new Intent(this, BluetoothGpsService.class);
                 svc.putExtra(BluetoothGpsService.EXTRA_BT_ADDRESS, selectedBtAddress);
@@ -977,12 +1008,16 @@ public class MainActivity extends AppCompatActivity {
         return String.format(Locale.ROOT, "%.1f MB", b / (1024f * 1024f));
     }
 
+    // P3-3: cached formatter avoids allocating a Calendar on every GPS fix
+    // FIX R5: display in local time (device timezone) instead of UTC so users
+    // see a timestamp that matches their wall clock.
+    private static final java.text.SimpleDateFormat FMT_TIME;
+    static {
+        FMT_TIME = new java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+        // Uses device's default timezone automatically
+    }
+
     private static String fmtTime(long epochMs) {
-        java.util.Calendar c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
-        c.setTimeInMillis(epochMs);
-        return String.format(Locale.ROOT, "%02d:%02d:%02d UTC",
-                c.get(java.util.Calendar.HOUR_OF_DAY),
-                c.get(java.util.Calendar.MINUTE),
-                c.get(java.util.Calendar.SECOND));
+        return FMT_TIME.format(new java.util.Date(epochMs));
     }
 }
